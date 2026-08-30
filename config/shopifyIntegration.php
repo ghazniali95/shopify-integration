@@ -108,6 +108,41 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Webhooks
+    |--------------------------------------------------------------------------
+    */
+
+    'webhooks' => [
+        /*
+         * Topic => a class extending WebhookJob.
+         *
+         * The three GDPR topics are mandatory for public apps. The shipped
+         * handlers verify, log and acknowledge, which is enough to pass
+         * review; override them once you store customer data of your own.
+         */
+        'topics' => [
+            'app/uninstalled'        => ShopGPT\ShopifyIntegration\Jobs\HandleAppUninstalled::class,
+            'shop/update'            => ShopGPT\ShopifyIntegration\Jobs\HandleShopUpdate::class,
+            'shop/redact'            => ShopGPT\ShopifyIntegration\Jobs\HandleShopRedact::class,
+            'customers/redact'       => ShopGPT\ShopifyIntegration\Jobs\HandleCustomersRedact::class,
+            'customers/data_request' => ShopGPT\ShopifyIntegration\Jobs\HandleCustomersDataRequest::class,
+
+            // 'products/update' => App\Jobs\SyncShopifyProduct::class,
+        ],
+
+        'queue'       => env('SHOPIFY_WEBHOOK_QUEUE', 'default'),
+        'log_channel' => env('SHOPIFY_WEBHOOK_LOG'),
+
+        /*
+         * Drop a redelivery carrying an X-Shopify-Webhook-Id already seen.
+         * Shopify redelivers anything it did not hear a 200 for, so a slow
+         * response would otherwise duplicate the work.
+         */
+        'deduplicate' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Redirects
     |--------------------------------------------------------------------------
     |

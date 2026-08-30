@@ -5,6 +5,7 @@ namespace ShopGPT\ShopifyIntegration;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use ShopGPT\ShopifyIntegration\Http\Middleware\EnsureStoreInstalled;
 use ShopGPT\ShopifyIntegration\Http\Middleware\VerifyShopifyHmac;
 use ShopGPT\ShopifyIntegration\Services\OAuthService;
 use ShopGPT\ShopifyIntegration\Services\StoreWriter;
@@ -35,6 +36,7 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
         /** @var Router $router */
         $router = $this->app['router'];
         $router->aliasMiddleware('shopifyIntegration.hmac', VerifyShopifyHmac::class);
+        $router->aliasMiddleware('shopifyIntegration.installed', EnsureStoreInstalled::class);
 
         $this->registerRoutes();
     }
@@ -45,11 +47,22 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
             return;
         }
 
+        $prefix = config('shopifyIntegration.routes.prefix', 'shopify');
+
         Route::group([
-            'prefix'     => config('shopifyIntegration.routes.prefix', 'shopify'),
+            'prefix'     => $prefix,
             'middleware' => config('shopifyIntegration.routes.middleware', ['web']),
         ], function () {
             $this->loadRoutesFrom(__DIR__.'/../routes/shopifyIntegration.php');
+        });
+
+        // Webhooks are stateless and must not run the web group: session and
+        // CSRF middleware would reject a signed POST from Shopify.
+        Route::group([
+            'prefix'     => $prefix,
+            'middleware' => config('shopifyIntegration.routes.webhook_middleware', ['api']),
+        ], function () {
+            $this->loadRoutesFrom(__DIR__.'/../routes/shopifyIntegrationWebhooks.php');
         });
     }
 }

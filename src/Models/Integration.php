@@ -182,6 +182,25 @@ class Integration extends Model
         return empty(array_diff($needed, $granted));
     }
 
+    /**
+     * Whether the merchant has to be sent back through OAuth — either the
+     * token is gone, or the app now asks for scopes this token was never
+     * granted.
+     */
+    public function needsReauthorization(): bool
+    {
+        return ! $this->hasValidToken() || ! $this->hasRequiredScopes();
+    }
+
+    /** The Admin API, bound to this store, token guaranteed fresh. */
+    public function api(): \ShopGPT\ShopifyIntegration\Api\ApiClient
+    {
+        return new \ShopGPT\ShopifyIntegration\Api\ApiClient(
+            $this,
+            app(\ShopGPT\ShopifyIntegration\Services\TokenService::class),
+        );
+    }
+
     public function markUninstalled(): void
     {
         $this->forceFill(['integration_uninstalled_at' => now()])->saveQuietly();

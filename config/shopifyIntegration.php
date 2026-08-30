@@ -1,0 +1,125 @@
+<?php
+
+return [
+
+    /*
+    |--------------------------------------------------------------------------
+    | App credentials
+    |--------------------------------------------------------------------------
+    |
+    | From your Shopify Partner dashboard. The env keys stay bare SHOPIFY_*
+    | because they are Shopify's credentials, not this package's settings.
+    |
+    */
+
+    'client_id'     => env('SHOPIFY_CLIENT_ID'),
+    'client_secret' => env('SHOPIFY_CLIENT_SECRET'),
+    'api_version'   => env('SHOPIFY_API_VERSION', '2025-07'),
+    'scopes'        => env('SHOPIFY_SCOPES', 'write_products'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Embedded
+    |--------------------------------------------------------------------------
+    */
+
+    'embedded' => [
+        'enabled' => env('SHOPIFY_EMBEDDED', false),
+
+        // Where an authenticated merchant lands inside the admin frame.
+        'entry'   => '/shopify/app',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Model
+    |--------------------------------------------------------------------------
+    |
+    | The Eloquent model for a connected store. Point this at a subclass to
+    | add your own relations.
+    |
+    */
+
+    'model' => ShopGPT\ShopifyIntegration\Models\Integration::class,
+
+    /*
+    |--------------------------------------------------------------------------
+    | OAuth
+    |--------------------------------------------------------------------------
+    */
+
+    'oauth' => [
+        /*
+         * Where the state nonce lives between begin and callback.
+         *
+         * 'cache' (default) keys the nonce by store domain and survives the
+         * third-party-cookie restrictions that break sessions inside the
+         * Shopify Admin iframe. Use 'session' only for a standalone app you
+         * are certain will never be embedded.
+         */
+        'state_store' => 'cache',
+        'state_ttl'   => 300,
+
+        /*
+         * Where to send someone who hits the install route with no shop
+         * parameter — usually a human who found the URL. Your App Store
+         * listing is the useful destination; null returns a 400.
+         */
+        'listing_url' => env('SHOPIFY_LISTING_URL'),
+
+        /*
+         * Skip HMAC verification on the install route. NEVER enable in
+         * production: it lets anyone install any store against your app.
+         * Guarded so it cannot switch on unless APP_DEBUG is also true.
+         */
+        'skip_hmac_in_debug' => env('SHOPIFY_SKIP_HMAC', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tokens
+    |--------------------------------------------------------------------------
+    */
+
+    'tokens' => [
+        // Refresh this many seconds before the token actually expires.
+        'refresh_buffer' => 300,
+
+        /*
+         * Encrypt tokens at rest with the app key. Reads always fall back to
+         * the raw value, so a table holding plaintext tokens keeps working
+         * and is re-encrypted the next time the token is written.
+         */
+        'encrypt' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Routes
+    |--------------------------------------------------------------------------
+    */
+
+    'routes' => [
+        'enabled'            => true,
+        'prefix'             => 'shopify',
+        'middleware'         => ['web'],
+        'webhook_middleware' => ['api'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Redirects
+    |--------------------------------------------------------------------------
+    |
+    | A route name, a URL, or a closure receiving the InstallContext.
+    | Embedded apps never leave the admin frame and ignore these.
+    |
+    */
+
+    'redirects' => [
+        'after_install'   => '/',
+        'after_reinstall' => '/',
+        'on_failure'      => '/',
+    ],
+
+];

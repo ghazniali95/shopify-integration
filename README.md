@@ -97,34 +97,52 @@ In your Partner dashboard set the App URL to
 
 ## Configuration
 
-Every key in `config/shopifyIntegration.php`:
+Every key in `config/shopifyIntegration.php`. Nine of them read from the
+environment; the rest are edited in the config file.
 
-| Key | Default | What it does |
-| --- | --- | --- |
-| `client_id` | `env('SHOPIFY_CLIENT_ID')` | Your app's API key |
-| `client_secret` | `env('SHOPIFY_CLIENT_SECRET')` | Signs and verifies everything |
-| `api_version` | `2025-07` | Admin API version used for every call |
-| `scopes` | `write_products` | Comma-separated. Changing this forces re-auth |
-| `embedded.enabled` | `false` | Runs inside the Shopify Admin iframe |
-| `embedded.entry` | `/shopify/app` | Where a merchant lands after installing |
-| `model` | `Integration::class` | Point at your own subclass to add relations |
-| `oauth.state_store` | `cache` | `cache` or `session`. Keep `cache` if embedded |
-| `oauth.state_ttl` | `300` | Seconds a pending install stays valid |
-| `oauth.listing_url` | `null` | Where to send someone who hits the install URL with no `shop` |
-| `oauth.skip_hmac_in_debug` | `false` | Local only, and requires `APP_DEBUG` as well |
-| `tokens.refresh_buffer` | `300` | Refresh this many seconds before expiry |
-| `tokens.encrypt` | `true` | Encrypt tokens at rest with your app key |
-| `routes.enabled` | `true` | Set `false` to register the routes yourself |
-| `routes.prefix` | `shopify` | URL prefix for the package's routes |
-| `routes.middleware` | `['web']` | Applied to the OAuth routes |
-| `routes.webhook_middleware` | `['api']` | Applied to the webhook route |
-| `webhooks.topics` | 5 topics | Topic => job class. See [Webhooks](#webhooks) |
-| `webhooks.queue` | `default` | Queue webhook jobs are pushed to |
-| `webhooks.log_channel` | `null` | Log channel for webhook activity |
-| `webhooks.deduplicate` | `true` | Drop redeliveries of a webhook id already seen |
-| `redirects.after_install` | `/` | Route name, URL, or closure. Ignored when embedded |
-| `redirects.after_reinstall` | `/` | Same, for a store that had uninstalled |
-| `redirects.on_failure` | `/` | Same, when OAuth fails |
+| Key | Env var | Default | What it does |
+| --- | --- | --- | --- |
+| `client_id` | `SHOPIFY_CLIENT_ID` | — | Your app's API key |
+| `client_secret` | `SHOPIFY_CLIENT_SECRET` | — | Signs and verifies everything |
+| `api_version` | `SHOPIFY_API_VERSION` | `2025-07` | Admin API version used for every call |
+| `scopes` | `SHOPIFY_SCOPES` | `write_products` | Comma-separated. Changing this forces re-auth |
+| `embedded.enabled` | `SHOPIFY_EMBEDDED` | `false` | Runs inside the Shopify Admin iframe |
+| `embedded.entry` | — | `/shopify/app` | Where a merchant lands after installing |
+| `model` | — | `Integration::class` | Point at your own subclass to add relations |
+| `oauth.state_store` | — | `cache` | `cache` or `session`. Keep `cache` if embedded |
+| `oauth.state_ttl` | — | `300` | Seconds a pending install stays valid |
+| `oauth.listing_url` | `SHOPIFY_LISTING_URL` | `null` | Where to send someone who hits the install URL with no `shop` |
+| `oauth.skip_hmac_in_debug` | `SHOPIFY_SKIP_HMAC` | `false` | Local only, and requires `APP_DEBUG` as well |
+| `tokens.refresh_buffer` | — | `300` | Refresh this many seconds before expiry |
+| `tokens.encrypt` | — | `true` | Encrypt tokens at rest with your app key |
+| `routes.enabled` | — | `true` | Set `false` to register the routes yourself |
+| `routes.prefix` | — | `shopify` | URL prefix for the package's routes |
+| `routes.middleware` | — | `['web']` | Applied to the OAuth routes |
+| `routes.webhook_middleware` | — | `['api']` | Applied to the webhook route |
+| `webhooks.topics` | — | 5 topics | Topic => job class. See [Webhooks](#webhooks) |
+| `webhooks.queue` | `SHOPIFY_WEBHOOK_QUEUE` | `default` | Queue webhook jobs are pushed to |
+| `webhooks.log_channel` | `SHOPIFY_WEBHOOK_LOG` | `null` | Log channel for webhook activity |
+| `webhooks.deduplicate` | — | `true` | Drop redeliveries of a webhook id already seen |
+| `redirects.after_install` | — | `/` | Route name, URL, or closure. Ignored when embedded |
+| `redirects.after_reinstall` | — | `/` | Same, for a store that had uninstalled |
+| `redirects.on_failure` | — | `/` | Same, when OAuth fails |
+
+Booleans are read the usual Laravel way, so `SHOPIFY_EMBEDDED=true` in `.env`
+arrives as boolean `true` — quotes are neither needed nor wanted. Anything that
+is not `true` (including an unset or empty value) is false.
+
+> **After changing `.env` on a server that caches config**, run
+> `php artisan config:clear` — or `config:cache` again. A cached config file
+> has the old values baked in and will ignore the `.env` entirely.
+
+Everything without an env var is edited in `config/shopifyIntegration.php`
+directly. Add your own env keys there if you want them environment-driven:
+
+```php
+'tokens' => [
+    'encrypt' => env('SHOPIFY_ENCRYPT_TOKENS', true),
+],
+```
 
 ---
 

@@ -108,15 +108,17 @@ class OAuthController extends Controller
     }
 
     /**
-     * Shopify signs both the install and the callback. The only reason to skip
-     * it is hitting the URL by hand in local development, so the escape hatch
-     * requires APP_DEBUG as well — it can never be switched on in production
-     * by config alone.
+     * Shopify signs both the install and the callback, and the only reason to
+     * skip that is opening the URL by hand in local development.
+     *
+     * Logged as a warning every time, because the failure mode is silent:
+     * with this on, anyone who knows a store domain can install any store
+     * against the app, and nothing about the request looks wrong.
      */
     private function hmacVerified(Request $request): bool
     {
-        if (config('shopifyIntegration.oauth.skip_hmac_in_debug') && config('app.debug')) {
-            Log::warning('shopifyIntegration: HMAC verification skipped (debug only).');
+        if (config('shopifyIntegration.debug')) {
+            Log::warning('shopifyIntegration: HMAC verification skipped — shopifyIntegration.debug is on.');
 
             return true;
         }

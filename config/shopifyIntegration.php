@@ -19,6 +19,23 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Debug
+    |--------------------------------------------------------------------------
+    |
+    | Development convenience: skips HMAC verification on the OAuth routes so
+    | you can open /shopify/auth/begin?shop=... by hand.
+    |
+    | NEVER TRUE IN PRODUCTION. HMAC is what proves an install request came
+    | from Shopify; with this on, anyone who knows a store domain can install
+    | any store against your app and be handed a working session. Every skip
+    | is logged as a warning so it is obvious if this is ever left on.
+    |
+    */
+
+    'debug' => env('SHOPIFY_DEBUG', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Embedded
     |--------------------------------------------------------------------------
     */
@@ -66,13 +83,6 @@ return [
          * listing is the useful destination; null returns a 400.
          */
         'listing_url' => env('SHOPIFY_LISTING_URL'),
-
-        /*
-         * Skip HMAC verification on the install route. NEVER enable in
-         * production: it lets anyone install any store against your app.
-         * Guarded so it cannot switch on unless APP_DEBUG is also true.
-         */
-        'skip_hmac_in_debug' => env('SHOPIFY_SKIP_HMAC', false),
     ],
 
     /*
@@ -127,7 +137,8 @@ return [
             'customers/redact'       => ShopGPT\ShopifyIntegration\Jobs\HandleCustomersRedact::class,
             'customers/data_request' => ShopGPT\ShopifyIntegration\Jobs\HandleCustomersDataRequest::class,
 
-            // 'products/update' => App\Jobs\SyncShopifyProduct::class,
+            // Any other topic you subscribe to, mapped to your own job:
+            // 'your/topic' => App\Jobs\YourHandler::class,
         ],
 
         'queue'       => env('SHOPIFY_WEBHOOK_QUEUE', 'default'),

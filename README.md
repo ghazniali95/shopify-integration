@@ -52,7 +52,7 @@ and gets out of the way.
 | `$api->paginate()`, REST call-limit headers | Planned |
 | `ShopifyIntegration::fake()`, model factories | Planned |
 
-116 tests, 267 assertions, green on Laravel 10.50, 11.56 and 12.68.
+119 tests, 276 assertions, green on Laravel 10.50, 11.56 and 12.68.
 
 ---
 
@@ -60,7 +60,7 @@ and gets out of the way.
 
 | Package | PHP | Laravel |
 | --- | --- | --- |
-| `0.1.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
+| `0.2.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
 
 Requires a cache store (OAuth state) and a queue worker (webhook handling).
 Any driver works.
@@ -97,7 +97,7 @@ In your Partner dashboard set the App URL to
 
 ## Configuration
 
-Every key in `config/shopifyIntegration.php`. Nine of them read from the
+Every key in `config/shopifyIntegration.php`. Ten of them read from the
 environment; the rest are edited in the config file.
 
 | Key | Env var | Default | What it does |
@@ -106,13 +106,13 @@ environment; the rest are edited in the config file.
 | `client_secret` | `SHOPIFY_CLIENT_SECRET` | — | Signs and verifies everything |
 | `api_version` | `SHOPIFY_API_VERSION` | `2025-07` | Admin API version used for every call |
 | `scopes` | `SHOPIFY_SCOPES` | `write_products` | Comma-separated. Changing this forces re-auth |
+| `debug` | `SHOPIFY_DEBUG` | `false` | Skips HMAC verification on the OAuth routes. Local only |
 | `embedded.enabled` | `SHOPIFY_EMBEDDED` | `false` | Runs inside the Shopify Admin iframe |
 | `embedded.entry` | — | `/shopify/app` | Where a merchant lands after installing |
 | `model` | — | `Integration::class` | Point at your own subclass to add relations |
 | `oauth.state_store` | — | `cache` | `cache` or `session`. Keep `cache` if embedded |
 | `oauth.state_ttl` | — | `300` | Seconds a pending install stays valid |
 | `oauth.listing_url` | `SHOPIFY_LISTING_URL` | `null` | Where to send someone who hits the install URL with no `shop` |
-| `oauth.skip_hmac_in_debug` | `SHOPIFY_SKIP_HMAC` | `false` | Local only, and requires `APP_DEBUG` as well |
 | `tokens.refresh_buffer` | — | `300` | Refresh this many seconds before expiry |
 | `tokens.encrypt` | — | `true` | Encrypt tokens at rest with your app key |
 | `routes.enabled` | — | `true` | Set `false` to register the routes yourself |
@@ -667,9 +667,11 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Security
 
-- **Never enable `oauth.skip_hmac_in_debug` in production.** It lets anyone
-  install any store against your app. It is guarded to require `APP_DEBUG` too,
-  but do not rely on that.
+- **Never set `debug` to `true` in production.** HMAC is what proves an install
+  request came from Shopify. With it off, anyone who knows a store domain can
+  install any store against your app, and nothing about the request looks
+  wrong. Every skip is logged as a warning so a forgotten `SHOPIFY_DEBUG=true`
+  is visible in your logs.
 - **Keep `oauth.state_store` on `cache`** if there is any chance the app runs
   embedded. Sessions do not survive the admin iframe.
 - **Tokens are encrypted with your `APP_KEY`.** Rotating it without re-encrypting
@@ -682,7 +684,11 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Versioning
 
-Semver. `0.x` while the API settles — require it as `^0.1`.
+Semver. `0.x` while the API settles — require it as `^0.2`.
+
+`0.2.0` renamed `oauth.skip_hmac_in_debug` to a plain top-level `debug`
+key. If you published the config before then, move the value across; the
+old key is no longer read.
 
 Repo: `github.com/ghazniali95/shopify-integration` ·
 Composer: `shopgpt/shopify-integration` (the vendor prefix does not have to

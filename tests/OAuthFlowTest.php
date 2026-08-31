@@ -301,4 +301,60 @@ class OAuthFlowTest extends TestCase
         $this->assertStringContainsString('/shopify/app', $location);
         $this->assertStringContainsString('host=YWNtZS9hZG1pbg', $location);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | The debug switch
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * The default that matters. HMAC is what proves an install request came
+     * from Shopify, so an unsigned one must be refused unless someone has
+     * deliberately turned the check off.
+     */
+    #[Test]
+    public function an_unsigned_install_is_refused_by_default(): void
+    {
+        Event::fake([OAuthFailed::class, OAuthStarted::class]);
+
+        $this->assertFalse(config('shopifyIntegration.debug'));
+
+        $this->get('/shopify/auth/begin?shop='.self::SHOP)->assertStatus(401);
+
+        Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'hmac');
+        Event::assertNotDispatched(OAuthStarted::class);
+    }
+
+    #[Test]
+    public function the_debug_switch_lets_an_unsigned_install_through(): void
+    {
+        Event::fake([OAuthStarted::class]);
+
+        config(['shopifyIntegration.debug' => true]);
+
+        $this->get('/shopify/auth/begin?shop='.self::SHOP)
+            ->assertRedirectContains('https://'.self::SHOP.'/admin/oauth/authorize');
+
+        Event::assertDispatched(OAuthStarted::class);
+    }
+
+    /**
+     * The callback is a separate public request carrying the authorisation
+     * code, so the same switch has to govern it — otherwise a developer who
+     * turns debug on gets through the install and is then stopped halfway.
+     */
+    #[Test]
+    public function the_debug_switch_also_covers_the_callback(): void
+    {
+        config(['shopifyIntegration.debug' => true]);
+        $this->fakeShopify();
+
+        $state = OAuthState::issue(self::SHOP);
+
+        $this->get('/shopify/auth/callback?shop='.self::SHOP.'&code=abc123&state='.$state)
+            ->assertRedirect();
+
+        $this->assertNotNull(Integration::forDomain(self::SHOP));
+    }
 }

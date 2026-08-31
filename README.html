@@ -326,7 +326,7 @@ html{scroll-behavior:smooth}
 <div class="shell">
   <aside class="rail">
     <p class="rail-label">Contents</p>
-    <ul class="toc"><li><a href="#build-status">Build status</a></li><li><a href="#requirements">Requirements</a></li><li><a href="#installation">Installation</a></li><li><a href="#which-mode-do-you-need">Which mode do you need?</a></li><li><a href="#quick-start-embedded-app">Quick start — embedded app</a></li><li><a href="#quick-start-standalone-app">Quick start — standalone app</a></li><li><a href="#the-integrations-table">The integrations table</a></li><li><a href="#configuration">Configuration</a></li><li><a href="#core-concepts">Core concepts</a></li><li><a href="#hooking-into-the-flow">Hooking into the flow</a></li><li><a href="#embedded-authentication">Embedded authentication</a></li><li><a href="#the-oauth-install-flow">The OAuth install flow</a></li><li><a href="#making-api-calls">Making API calls</a></li><li><a href="#webhooks">Webhooks</a></li><li><a href="#middleware">Middleware</a></li><li><a href="#working-with-the-current-store">Working with the current store</a></li><li><a href="#queued-jobs">Queued jobs</a></li><li><a href="#artisan-commands">Artisan commands</a></li><li><a href="#testing">Testing</a></li><li><a href="#adopting-it-in-an-existing-app">Adopting it in an existing app</a></li><li><a href="#security-notes">Security notes</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#versioning">Versioning</a></li></ul>
+    <ul class="toc"><li><a href="#build-status">Build status</a></li><li><a href="#requirements">Requirements</a></li><li><a href="#installation">Installation</a></li><li><a href="#configuration">Configuration</a></li><li><a href="#the-integrations-table">The integrations table</a></li><li><a href="#quick-start-embedded-app">Quick start — embedded app</a></li><li><a href="#quick-start-standalone-app">Quick start — standalone app</a></li><li><a href="#routes">Routes</a></li><li><a href="#middleware">Middleware</a></li><li><a href="#the-facade">The facade</a></li><li><a href="#the-store-model">The store model</a></li><li><a href="#calling-the-admin-api">Calling the Admin API</a></li><li><a href="#errors">Errors</a></li><li><a href="#events">Events</a></li><li><a href="#webhooks">Webhooks</a></li><li><a href="#what-you-can-change">What you can change</a></li><li><a href="#testing">Testing</a></li><li><a href="#security">Security</a></li><li><a href="#versioning">Versioning</a></li></ul>
   </aside>
   <main>
     <header class="masthead">
@@ -340,434 +340,150 @@ html{scroll-behavior:smooth}
         <div class="fact"><dt>Laravel</dt><dd>10 &middot; 11 &middot; 12</dd></div>
       </dl>
     </header>
-<p>Multi-tenant Shopify authentication for Laravel apps — embedded and standalone.</p><p>One Shopify app can be installed by thousands of merchants. Each install is a tenant: its own store domain, its own access token, its own expiry, its own webhooks. This package owns that whole lifecycle — OAuth, session tokens, token exchange, expiring offline tokens, automatic refresh, HMAC verification, webhook routing, and a rate-limit-aware API client scoped to a single store — so your app never writes it again.</p><p>It is extracted from the production Shopify flows in <code>prompt-form</code> (embedded, App Bridge, token exchange), <code>shopGPT-app</code> and <code>atelier</code> (standalone OAuth), which had each grown their own copy of the same 600 lines.</p><p><strong>Design rule:</strong> the package authenticates <em>Shopify</em>. It never touches your users, your guards or your sessions. It stores the store and its tokens, fires an event, and gets out of the way — so the same package serves an app with Cashier billing and user accounts, and an app with no user table at all.</p><section id="build-status"><h2>Build status</h2><p>Everything documented below is designed; not all of it is written yet. This table is the honest state of the code, kept current as pieces land.</p><div class="table-wrap"><table><thead><tr><th>Area</th><th>State</th></tr></thead><tbody><tr><td>OAuth install / callback, HMAC, cache-backed state</td><td><strong>Built</strong></td></tr><tr><td>Expiring offline tokens, refresh, encryption at rest</td><td><strong>Built</strong></td></tr><tr><td>The <code>integrations</code> table and additive migration</td><td><strong>Built</strong></td></tr><tr><td>Session token verification, token exchange, embedded middleware</td><td><strong>Built</strong></td></tr><tr><td>Webhook receipt, GDPR topics, dedupe, <code>app/uninstalled</code></td><td><strong>Built</strong></td></tr><tr><td>API client — GraphQL, REST verbs, error classification, GraphQL throttling</td><td><strong>Built</strong></td></tr><tr><td>Events, exceptions, facade, <code>asStore()</code></td><td><strong>Built</strong></td></tr><tr><td>Webhook <em>registration</em> with Shopify (<code>webhooks:sync</code>)</td><td>Planned</td></tr><tr><td>Artisan commands</td><td>Planned</td></tr><tr><td><code>$api-&gt;paginate()</code>, REST call-limit headers</td><td>Planned</td></tr><tr><td><code>ShopifyIntegration::fake()</code></td><td>Planned</td></tr></tbody></table></div><p>116 tests, 267 assertions, green on Laravel 10.50, 11.56 and 12.68.</p><p>Sections describing planned work are marked inline.</p></section><section id="requirements"><h2>Requirements</h2><div class="table-wrap"><table><thead><tr><th>Package</th><th>PHP</th><th>Laravel</th></tr></thead><tbody><tr><td><code>1.x</code></td><td><code>^8.1</code></td><td><code>10.x</code>, <code>11.x</code>, <code>12.x</code></td></tr></tbody></table></div><p>Tested against Laravel 10, 11 and 12 on PHP 8.1 – 8.4. Laravel 10 is fully supported: the package ships no code that depends on 11/12-only APIs.</p><p>Requires a queue worker for webhook handling and post-install jobs, and a cache store for OAuth state. Any driver works; Redis is recommended.</p></section><section id="installation"><h2>Installation</h2><pre><code class="language-bash">composer require shopgpt/shopify-integration</code></pre><div class="note"><p><span class="note-label">On the package name.</span> The composer name must be lowercase — Composer enforces this and there is no way around it. Requiring <code>shopGPT/shopify-integration</code> fails outright and reverts your <code>composer.json</code>:</p><pre><code>require.shopGPT/shopify-integration is invalid, it should not contain upper
-case characters. Please use shopgpt/shopify-integration instead.</code></pre><p>The <code>name</code> field is validated against <code>^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$</code> as a schema error, not a warning. So the composer name is lowercase while everything a developer actually reads keeps its casing:</p><div class="table-wrap"><table><thead><tr><th>Where</th><th>Value</th></tr></thead><tbody><tr><td>GitHub repo</td><td><code>github.com/ghazniali95/shopify-integration</code></td></tr><tr><td>PHP namespace</td><td><code>ShopGPT\ShopifyIntegration\…</code></td></tr><tr><td>Composer name</td><td><code>shopgpt/shopify-integration</code></td></tr></tbody></table></div><p>The vendor prefix does not have to match the GitHub account. Packagist reads the name out of <code>composer.json</code>, so <code>shopgpt/*</code> is published from a repo under a personal account without either having to move.</p></div><p>The service provider is auto-discovered. Publish the config and the migration:</p><pre><code class="language-bash">php artisan vendor:publish --tag=shopifyIntegration-config
+<p>Multi-tenant Shopify authentication for Laravel apps — embedded and standalone.</p><p>One Shopify app can be installed by thousands of merchants. Each install is a tenant: its own store domain, its own access token, its own expiry, its own webhooks. This package owns that lifecycle so your app does not have to.</p><p><strong>Design rule:</strong> the package authenticates <em>Shopify</em>. It never touches your users, guards or sessions. It stores the store and its tokens, fires an event, and gets out of the way.</p><section id="build-status"><h2>Build status</h2><div class="table-wrap"><table><thead><tr><th>Area</th><th>State</th></tr></thead><tbody><tr><td>OAuth install / callback, HMAC, state</td><td><strong>Built</strong></td></tr><tr><td>Expiring offline tokens, refresh, encryption at rest</td><td><strong>Built</strong></td></tr><tr><td>The <code>integrations</code> table and additive migration</td><td><strong>Built</strong></td></tr><tr><td>Session token verification, token exchange, embedded middleware</td><td><strong>Built</strong></td></tr><tr><td>Webhook receipt, GDPR topics, dedupe, <code>app/uninstalled</code></td><td><strong>Built</strong></td></tr><tr><td>Admin API client — GraphQL, REST verbs, error classification</td><td><strong>Built</strong></td></tr><tr><td>Events, exceptions, facade, <code>asStore()</code></td><td><strong>Built</strong></td></tr><tr><td>Webhook <em>registration</em> with Shopify (<code>webhooks:sync</code>)</td><td>Planned</td></tr><tr><td>Artisan commands</td><td>Planned</td></tr><tr><td><code>$api-&gt;paginate()</code>, REST call-limit headers</td><td>Planned</td></tr><tr><td><code>ShopifyIntegration::fake()</code>, model factories</td><td>Planned</td></tr></tbody></table></div><p>116 tests, 267 assertions, green on Laravel 10.50, 11.56 and 12.68.</p></section><section id="requirements"><h2>Requirements</h2><div class="table-wrap"><table><thead><tr><th>Package</th><th>PHP</th><th>Laravel</th></tr></thead><tbody><tr><td><code>0.1.x</code></td><td><code>^8.1</code></td><td><code>10.x</code>, <code>11.x</code>, <code>12.x</code></td></tr></tbody></table></div><p>Requires a cache store (OAuth state) and a queue worker (webhook handling). Any driver works.</p></section><section id="installation"><h2>Installation</h2><pre><code class="language-bash">composer require shopgpt/shopify-integration</code></pre><pre><code class="language-bash">php artisan vendor:publish --tag=shopifyIntegration-config
 php artisan vendor:publish --tag=shopifyIntegration-migrations
-php artisan migrate</code></pre><p>The config lands at <strong><code>config/shopifyIntegration.php</code></strong>, read as <code>config(&#x27;shopifyIntegration.client_id&#x27;)</code>. It deliberately does not claim <code>config/shopify.php</code> — that name is generic enough that another package, or your own app, may already want it.</p><p>The migration is additive: it creates <code>integrations</code> if you do not have one, and adds only the missing columns if you do. See <a href="#the-integrations-table">The integrations table</a>.</p><h3 id="naming">Naming</h3><p>Nothing the package registers is called plain <code>shopify</code> — that name is generic enough that another package, or your own app, may already want it. Everything the package owns is namespaced <code>shopifyIntegration</code>:</p><div class="table-wrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td>Config</td><td><code>config(&#x27;shopifyIntegration.client_id&#x27;)</code></td></tr><tr><td>Facade</td><td><code>ShopifyIntegration::currentStore()</code></td></tr><tr><td>Middleware</td><td><code>shopifyIntegration.embedded</code>, <code>shopifyIntegration.session</code></td></tr><tr><td>Route names</td><td><code>shopifyIntegration.auth.begin</code></td></tr><tr><td>Commands</td><td><code>php artisan shopifyIntegration:stores</code></td></tr><tr><td>Publish tags</td><td><code>--tag=shopifyIntegration-config</code></td></tr></tbody></table></div><p>Two things stay bare <code>shopify</code>, deliberately:</p><ul><li><p><strong>The URL paths</strong> — <code>/shopify/auth/begin</code>, <code>/shopify/webhooks</code>. These are read by merchants and pasted into the Partner dashboard, and camelCase in a URL is a mistake you cannot take back once stores are installed against it. Change them with <code>routes.prefix</code> if you disagree.</p></li><li><p><strong>The env keys</strong> — <code>SHOPIFY_CLIENT_ID</code>, <code>SHOPIFY_CLIENT_SECRET</code>. These are Shopify&#x27;s credentials, not the package&#x27;s settings, and every Shopify app you have already names them this way.</p></li></ul><p>Add your credentials to <code>.env</code>:</p><pre><code class="language-dotenv">SHOPIFY_CLIENT_ID=your_api_key
+php artisan migrate</code></pre><p>The service provider is auto-discovered. Config lands at <code>config/shopifyIntegration.php</code>.</p><pre><code class="language-env">SHOPIFY_CLIENT_ID=your_api_key
 SHOPIFY_CLIENT_SECRET=your_api_secret
-SHOPIFY_API_VERSION=2025-07
-SHOPIFY_SCOPES=&quot;write_products,write_files,write_content&quot;
-SHOPIFY_EMBEDDED=true</code></pre><p>Register these three URLs with Shopify — in the Partner dashboard, or in <code>shopify.app.toml</code>. All three follow <code>config(&#x27;shopifyIntegration.routes.prefix&#x27;)</code>, so changing the prefix moves all of them together:</p><div class="table-wrap"><table><thead><tr><th></th><th>URL</th></tr></thead><tbody><tr><td><strong>App URL</strong></td><td><code>https://your-app.com/shopify/auth/begin</code></td></tr><tr><td><strong>Allowed redirection URL</strong></td><td><code>https://your-app.com/shopify/auth/callback</code></td></tr><tr><td><strong>Webhook endpoint</strong></td><td><code>https://your-app.com/shopify/webhooks</code></td></tr></tbody></table></div></section><section id="which-mode-do-you-need"><h2>Which mode do you need?</h2><p>The package supports both, and the difference matters more than it looks.</p><div class="table-wrap"><table><thead><tr><th></th><th><strong>Embedded</strong></th><th><strong>Standalone</strong></th></tr></thead><tbody><tr><td>Where it runs</td><td>Inside an iframe in Shopify Admin</td><td>Your own domain, own browser tab</td></tr><tr><td>Authenticates each request with</td><td>An App Bridge session token (JWT)</td><td>Your app&#x27;s own session</td></tr><tr><td>Gets its access token via</td><td>Token exchange, silently</td><td>The OAuth redirect round trip</td></tr><tr><td>Cookies</td><td>Unreliable — third-party context</td><td>Normal</td></tr><tr><td>Example</td><td><code>prompt-form</code></td><td><code>shopGPT-app</code>, <code>atelier</code></td></tr></tbody></table></div><p><strong>New public apps should be embedded.</strong> Shopify requires it for App Store listing, and merchants never leave the admin. Embedded apps still need the OAuth routes as a fallback for reinstalls and scope changes — the package registers both either way.</p><div class="note"><p><span class="note-label">Cookies are the trap.</span> An embedded app runs in a third-party iframe, where Safari and Chrome&#x27;s privacy modes drop your session cookie without warning. Anything the package needs to persist between two requests — OAuth state above all — goes in the <strong>cache keyed by store domain</strong>, never the session. This is the single most common reason a home-grown embedded app works in development and fails for real merchants.</p></div></section><section id="quick-start-embedded-app"><h2>Quick start — embedded app</h2><p><strong>1. Configure.</strong> Set <code>SHOPIFY_EMBEDDED=true</code> and run the migration.</p><p><strong>2. Load App Bridge in your host view.</strong> It must be the first script on the page, before your bundle. The unversioned URL is deliberate — Shopify serves the current App Bridge, and pinning it is unsupported.</p><pre><code class="language-blade">&lt;meta name=&quot;shopify-api-key&quot; content=&quot;{{ config(&#x27;shopifyIntegration.client_id&#x27;) }}&quot;&gt;
-&lt;script src=&quot;https://cdn.shopify.com/shopifycloud/app-bridge.js&quot;
-        data-api-key=&quot;{{ config(&#x27;shopifyIntegration.client_id&#x27;) }}&quot;&gt;&lt;/script&gt;
+SHOPIFY_SCOPES=write_products,read_orders
+SHOPIFY_EMBEDDED=true</code></pre><p>In your Partner dashboard set the App URL to <code>https://your-app.com/shopify/auth/begin</code> and the redirect URL to <code>https://your-app.com/shopify/auth/callback</code>.</p></section><section id="configuration"><h2>Configuration</h2><p>Every key in <code>config/shopifyIntegration.php</code>:</p><div class="table-wrap"><table><thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead><tbody><tr><td><code>client_id</code></td><td><code>env(&#x27;SHOPIFY_CLIENT_ID&#x27;)</code></td><td>Your app&#x27;s API key</td></tr><tr><td><code>client_secret</code></td><td><code>env(&#x27;SHOPIFY_CLIENT_SECRET&#x27;)</code></td><td>Signs and verifies everything</td></tr><tr><td><code>api_version</code></td><td><code>2025-07</code></td><td>Admin API version used for every call</td></tr><tr><td><code>scopes</code></td><td><code>write_products</code></td><td>Comma-separated. Changing this forces re-auth</td></tr><tr><td><code>embedded.enabled</code></td><td><code>false</code></td><td>Runs inside the Shopify Admin iframe</td></tr><tr><td><code>embedded.entry</code></td><td><code>/shopify/app</code></td><td>Where a merchant lands after installing</td></tr><tr><td><code>model</code></td><td><code>Integration::class</code></td><td>Point at your own subclass to add relations</td></tr><tr><td><code>oauth.state_store</code></td><td><code>cache</code></td><td><code>cache</code> or <code>session</code>. Keep <code>cache</code> if embedded</td></tr><tr><td><code>oauth.state_ttl</code></td><td><code>300</code></td><td>Seconds a pending install stays valid</td></tr><tr><td><code>oauth.listing_url</code></td><td><code>null</code></td><td>Where to send someone who hits the install URL with no <code>shop</code></td></tr><tr><td><code>oauth.skip_hmac_in_debug</code></td><td><code>false</code></td><td>Local only, and requires <code>APP_DEBUG</code> as well</td></tr><tr><td><code>tokens.refresh_buffer</code></td><td><code>300</code></td><td>Refresh this many seconds before expiry</td></tr><tr><td><code>tokens.encrypt</code></td><td><code>true</code></td><td>Encrypt tokens at rest with your app key</td></tr><tr><td><code>routes.enabled</code></td><td><code>true</code></td><td>Set <code>false</code> to register the routes yourself</td></tr><tr><td><code>routes.prefix</code></td><td><code>shopify</code></td><td>URL prefix for the package&#x27;s routes</td></tr><tr><td><code>routes.middleware</code></td><td><code>[&#x27;web&#x27;]</code></td><td>Applied to the OAuth routes</td></tr><tr><td><code>routes.webhook_middleware</code></td><td><code>[&#x27;api&#x27;]</code></td><td>Applied to the webhook route</td></tr><tr><td><code>webhooks.topics</code></td><td>5 topics</td><td>Topic =&gt; job class. See <a href="#webhooks">Webhooks</a></td></tr><tr><td><code>webhooks.queue</code></td><td><code>default</code></td><td>Queue webhook jobs are pushed to</td></tr><tr><td><code>webhooks.log_channel</code></td><td><code>null</code></td><td>Log channel for webhook activity</td></tr><tr><td><code>webhooks.deduplicate</code></td><td><code>true</code></td><td>Drop redeliveries of a webhook id already seen</td></tr><tr><td><code>redirects.after_install</code></td><td><code>/</code></td><td>Route name, URL, or closure. Ignored when embedded</td></tr><tr><td><code>redirects.after_reinstall</code></td><td><code>/</code></td><td>Same, for a store that had uninstalled</td></tr><tr><td><code>redirects.on_failure</code></td><td><code>/</code></td><td>Same, when OAuth fails</td></tr></tbody></table></div></section><section id="the-integrations-table"><h2>The integrations table</h2><p>One row per connected store. Every column the package owns is prefixed <code>integration_</code>, so the table can hold other platforms alongside Shopify.</p><p>The migration is <strong>additive</strong>: it creates <code>integrations</code> if you do not have one, and adds only the missing columns if you do.</p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Holds</th></tr></thead><tbody><tr><td><code>id</code></td><td>id</td><td></td></tr><tr><td><code>user_id</code></td><td>foreignId, nullable</td><td>Yours to use; the package never writes it</td></tr><tr><td><code>integration_platform</code></td><td>string</td><td>Always <code>shopify</code> for these rows</td></tr><tr><td><code>integration_external_id</code></td><td>string</td><td>Shopify&#x27;s numeric shop id — survives a rename</td></tr><tr><td><code>integration_store_domain</code></td><td>string</td><td><code>acme.myshopify.com</code></td></tr><tr><td><code>integration_domain</code></td><td>string</td><td>The custom domain, e.g. <code>acme.com</code></td></tr><tr><td><code>integration_access_token</code></td><td>text</td><td>Encrypted at rest</td></tr><tr><td><code>integration_refresh_token</code></td><td>text</td><td>Encrypted at rest</td></tr><tr><td><code>integration_token_expires_at</code></td><td>timestamp</td><td>Null means a legacy permanent token</td></tr><tr><td><code>integration_scopes</code></td><td>string</td><td>What Shopify actually granted</td></tr><tr><td><code>integration_installed_at</code></td><td>timestamp</td><td></td></tr><tr><td><code>integration_uninstalled_at</code></td><td>timestamp</td><td>Null means installed</td></tr><tr><td><code>integration_name</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_email</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_shop_owner</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_phone</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_currency</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_country_code</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_country_name</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_primary_locale</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_plan_name</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_weight_unit</code></td><td>string</td><td>Shop profile</td></tr><tr><td><code>integration_password_enabled</code></td><td>boolean</td><td>Shop profile</td></tr><tr><td><code>integration_shop_data</code></td><td>json</td><td>The whole <code>shop.json</code> payload</td></tr><tr><td><code>integration_shop_data_synced_at</code></td><td>timestamp</td><td></td></tr><tr><td><code>integration_metadata</code></td><td>json</td><td>Yours. The package never writes it</td></tr><tr><td><code>created_at</code> / <code>updated_at</code></td><td>timestamps</td><td></td></tr></tbody></table></div><p>Columns are addressed <strong>without</strong> the prefix in code — <code>$store-&gt;access_token</code>, not <code>$store-&gt;integration_access_token</code>.</p></section><section id="quick-start-embedded-app"><h2>Quick start — embedded app</h2><p><strong>1.</strong> Set <code>SHOPIFY_EMBEDDED=true</code>.</p><p><strong>2.</strong> Load App Bridge first in your host view:</p><pre><code class="language-blade">&lt;meta name=&quot;shopify-api-key&quot; content=&quot;{{ config(&#x27;shopifyIntegration.client_id&#x27;) }}&quot;&gt;
+&lt;script src=&quot;https://cdn.shopify.com/shopifycloud/app-bridge.js&quot;&gt;&lt;/script&gt;
 
-@vite([&#x27;resources/js/app.jsx&#x27;])</code></pre><p><strong>3. Protect your routes.</strong></p><pre><code class="language-php">// routes/web.php — pages loaded inside the Shopify Admin iframe
+@vite([&#x27;resources/js/app.jsx&#x27;])</code></pre><p><strong>3.</strong> Protect your routes:</p><pre><code class="language-php">// Pages loaded inside the Shopify Admin iframe
 Route::middleware(&#x27;shopifyIntegration.embedded&#x27;)-&gt;group(function () {
-    Route::get(&#x27;/shopify/app&#x27;, fn () =&gt; view(&#x27;shopify&#x27;))-&gt;name(&#x27;shopify.home&#x27;);
+    Route::get(&#x27;/shopify/app&#x27;, fn () =&gt; view(&#x27;shopify&#x27;));
 });
 
-// routes/api.php — XHR from inside the iframe, bearing a session token
+// XHR from inside the iframe, bearing a session token
 Route::middleware(&#x27;shopifyIntegration.session&#x27;)-&gt;group(function () {
     Route::get(&#x27;/api/products&#x27;, [ProductController::class, &#x27;index&#x27;]);
-});</code></pre><p><strong>4. Send the session token from the front end.</strong></p><pre><code class="language-js">const token = await shopify.idToken();
+});</code></pre><p><strong>4.</strong> Send the session token from the front end:</p><pre><code class="language-js">const token = await shopify.idToken();
 
 await fetch(&#x27;/api/products&#x27;, {
     headers: { Authorization: `Bearer ${token}` },
-});</code></pre><p>That is the whole install. There is no redirect, no consent screen on a managed install, and no moment where the merchant leaves the admin. The first time a verified session token arrives for a store the package has no token for, it performs a <strong>token exchange</strong> in the background and stores the result.</p><p><strong>5. Call the API as that store.</strong></p><pre><code class="language-php">use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;
+});</code></pre><p><strong>5.</strong> Call the API as that store:</p><pre><code class="language-php">$products = ShopifyIntegration::currentStore()-&gt;api()-&gt;graphql(&lt;&lt;&lt;&#x27;GQL&#x27;
+    query { products(first: 10) { edges { node { id title } } } }
+GQL)-&gt;json(&#x27;data.products.edges&#x27;);</code></pre></section><section id="quick-start-standalone-app"><h2>Quick start — standalone app</h2><p><strong>1.</strong> Leave <code>SHOPIFY_EMBEDDED=false</code> and set your redirects:</p><pre><code class="language-php">&#x27;redirects&#x27; =&gt; [
+    &#x27;after_install&#x27; =&gt; &#x27;dashboard&#x27;,
+    &#x27;on_failure&#x27;    =&gt; &#x27;/connect-failed&#x27;,
+],</code></pre><p><strong>2.</strong> Send merchants to the install URL:</p><pre><code class="language-php">return redirect(ShopifyIntegration::installUrl(&#x27;acme.myshopify.com&#x27;));</code></pre><p><strong>3.</strong> Create or log in your user from the install event:</p><pre><code class="language-php">Event::listen(StoreInstalled::class, function (StoreInstalled $event) {
+    $user = User::firstOrCreate(
+        [&#x27;email&#x27; =&gt; $event-&gt;context-&gt;uniqueEmail(&#x27;your-app.com&#x27;,
+            fn ($email) =&gt; User::where(&#x27;email&#x27;, $email)-&gt;exists())],
+        [&#x27;name&#x27; =&gt; $event-&gt;context-&gt;shopOwner()],
+    );
 
-$products = ShopifyIntegration::currentStore()-&gt;api()-&gt;graphql(&lt;&lt;&lt;&#x27;GQL&#x27;
-    query {
-        products(first: 10) {
-            edges { node { id title handle } }
-        }
-    }
-GQL)-&gt;json(&#x27;data.products.edges&#x27;);</code></pre></section><section id="quick-start-standalone-app"><h2>Quick start — standalone app</h2><p><strong>1. Migrate.</strong></p><p><strong>2. Point a merchant at the install route.</strong></p><pre><code>https://your-app.com/shopify/auth/begin?shop=acme.myshopify.com</code></pre><p>The package verifies the request, runs OAuth, stores an encrypted expiring token, registers webhooks, fires <code>StoreInstalled</code>, and redirects to <code>config(&#x27;shopifyIntegration.redirects.after_install&#x27;)</code>.</p><p><strong>3. Do your own thing on install.</strong></p><p>The package will not create or log in a user — that is your app&#x27;s decision. Listen for the event:</p><pre><code class="language-php">// app/Providers/EventServiceProvider.php
-use ShopGPT\ShopifyIntegration\Events\StoreInstalled;
+    $event-&gt;store-&gt;update([&#x27;user_id&#x27; =&gt; $user-&gt;id]);
 
-protected $listen = [
-    StoreInstalled::class =&gt; [
-        CreateUserForStore::class,
-    ],
-];</code></pre><p><strong>4. Call the API as that store.</strong></p><pre><code class="language-php">use ShopGPT\ShopifyIntegration\Models\Integration;
-
-$store = Integration::forDomain(&#x27;acme.myshopify.com&#x27;);
-
-$store-&gt;api()-&gt;graphql($query);</code></pre><p>The token is refreshed automatically if it is close to expiry. You never touch the access token.</p></section><section id="the-integrations-table"><h2>The integrations table</h2><p>One table holds every OAuth connection your app has — Shopify today, Ecwid or BigCommerce later. Every column the package owns carries an <code>integration_</code> prefix, so it can sit alongside whatever else your app keeps there without collisions.</p><p><strong>The column names are fixed.</strong> There is no mapping layer and no configuration for them: the package reads and writes exactly these names in every app that installs it. That is what makes a store row mean the same thing everywhere, and what lets a job or a listener move between your apps unchanged.</p><h3 id="columns">Columns</h3><p><strong>Laravel conventions — deliberately unprefixed</strong></p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Written by</th></tr></thead><tbody><tr><td><code>id</code></td><td><code>id</code></td><td>no</td><td>the package</td></tr><tr><td><code>user_id</code></td><td><code>foreignId</code></td><td>yes</td><td><strong>you</strong></td></tr><tr><td><code>created_at</code></td><td><code>timestamp</code></td><td>yes</td><td>the package</td></tr><tr><td><code>updated_at</code></td><td><code>timestamp</code></td><td>yes</td><td>the package</td></tr></tbody></table></div><p>Prefixing these four would fight Eloquent: you would need <code>$primaryKey</code>, <code>CREATED_AT</code>/<code>UPDATED_AT</code> constants and an explicit foreign key on every relation, in every app, forever.</p><p><code>user_id</code> is created for you but <strong>never written by the package</strong> — it does not know or care what a user is. Your <code>StoreInstalled</code> listener fills it in. An app with no user table can ignore the column entirely.</p><p><strong>Identity</strong></p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Holds</th></tr></thead><tbody><tr><td><code>integration_platform</code></td><td><code>string</code></td><td>no</td><td><code>shopify</code>. Every package query is scoped to this value</td></tr><tr><td><code>integration_external_id</code></td><td><code>string</code></td><td>yes</td><td>Shopify&#x27;s numeric shop id</td></tr><tr><td><code>integration_store_domain</code></td><td><code>string</code></td><td>yes</td><td><code>shopgpt.myshopify.com</code> — the API and webhook identity</td></tr><tr><td><code>integration_domain</code></td><td><code>string</code></td><td>yes</td><td><code>shopgptpro.com</code> — the merchant&#x27;s public storefront</td></tr></tbody></table></div><p>Two domains, because they are two different things. <code>integration_store_domain</code> is what every API URL is built from, what webhooks send in <code>X-Shopify-Shop-Domain</code>, and what a session token carries in <code>dest</code> — it is the identity. <code>integration_domain</code> is the customer-facing address, which the merchant can change at any time and which nothing in the auth flow depends on.</p><p><strong>OAuth</strong></p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Notes</th></tr></thead><tbody><tr><td><code>integration_access_token</code></td><td><code>text</code></td><td>yes</td><td>Encrypted at rest</td></tr><tr><td><code>integration_refresh_token</code></td><td><code>text</code></td><td>yes</td><td>Encrypted at rest</td></tr><tr><td><code>integration_token_expires_at</code></td><td><code>timestamp</code></td><td>yes</td><td><code>null</code> = legacy permanent token, never refreshed</td></tr><tr><td><code>integration_scopes</code></td><td><code>string</code></td><td>yes</td><td>Scopes Shopify actually granted</td></tr></tbody></table></div><p>Both token columns are <strong><code>text</code>, not <code>string</code></strong>. Encryption inflates a ~40-char Shopify token well past 255 characters, and <code>varchar(255)</code> truncates it silently — no error on write, an unusable token on read.</p><p><strong>Lifecycle</strong></p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Notes</th></tr></thead><tbody><tr><td><code>integration_installed_at</code></td><td><code>timestamp</code></td><td>yes</td><td>First successful authorisation</td></tr><tr><td><code>integration_uninstalled_at</code></td><td><code>timestamp</code></td><td>yes</td><td><strong><code>null</code> means currently installed</strong></td></tr></tbody></table></div><p>One column as the source of truth, rather than a boolean plus a timestamp that can disagree.</p><p><strong>Store profile</strong></p><p>Promoted out of the raw payload because they are read constantly or drive real logic. All <code>string</code> and nullable — no length constraints, because the equivalent fields on other platforms do not guarantee ISO-length values.</p><div class="table-wrap"><table><thead><tr><th>Column</th><th>From <code>shop.json</code></th><th>Why it earns a column</th></tr></thead><tbody><tr><td><code>integration_name</code></td><td><code>name</code></td><td>Every admin list, support ticket, Slack ping</td></tr><tr><td><code>integration_email</code></td><td><code>email</code></td><td>Merchant contact</td></tr><tr><td><code>integration_shop_owner</code></td><td><code>shop_owner</code></td><td>The human&#x27;s name</td></tr><tr><td><code>integration_phone</code></td><td><code>phone</code></td><td>Stored by both existing apps</td></tr><tr><td><code>integration_currency</code></td><td><code>currency</code></td><td>Billing amounts and plan pricing</td></tr><tr><td><code>integration_country_code</code></td><td><code>country_code</code></td><td>Tax, regional logic, reporting</td></tr><tr><td><code>integration_country_name</code></td><td><code>country_name</code></td><td>Display, without a lookup table</td></tr><tr><td><code>integration_primary_locale</code></td><td><code>primary_locale</code></td><td>Decides the language generated content is written in</td></tr><tr><td><code>integration_plan_name</code></td><td><code>plan_name</code></td><td>Decides test vs live billing charges</td></tr><tr><td><code>integration_weight_unit</code></td><td><code>weight_unit</code></td><td>Product sync</td></tr><tr><td><code>integration_password_enabled</code></td><td><code>password_enabled</code></td><td><code>boolean</code> — whether the storefront is password-protected</td></tr></tbody></table></div><p><code>integration_plan_name</code> is the one people forget. Values like <code>partner_test</code>, <code>affiliate</code> and <code>plus_partner_sandbox</code> mean a development store, where Shopify <strong>rejects</strong> a live recurring charge — you must send <code>test: true</code>. shopGPT-app does this today with a global <code>SHOPIFY_TEST_CHARGE</code> env var; a per-store column makes it automatic.</p><p><strong>Data</strong></p><div class="table-wrap"><table><thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Owner</th></tr></thead><tbody><tr><td><code>integration_shop_data</code></td><td><code>json</code></td><td>yes</td><td><strong>The package</strong> — the full raw <code>shop.json</code> payload</td></tr><tr><td><code>integration_shop_data_synced_at</code></td><td><code>timestamp</code></td><td>yes</td><td>The package — when that snapshot was taken</td></tr><tr><td><code>integration_metadata</code></td><td><code>json</code></td><td>yes</td><td><strong>You</strong> — the package never writes here</td></tr></tbody></table></div><p>Two JSON columns, because they have two different owners. <code>shop.json</code> returns around 60 fields; the eleven above are promoted and the rest — money formats, tax settings, capability flags, <code>primary_location_id</code>, <code>enabled_presentment_currencies</code>, address — stay in <code>integration_shop_data</code>, free to keep and there when you need one.</p><h3 id="indexes">Indexes</h3><pre><code>unique  (integration_platform, integration_external_id)
-unique  (integration_platform, integration_store_domain)
-index   (user_id, integration_platform)
-index   (integration_platform, integration_uninstalled_at)
-index   (integration_token_expires_at)</code></pre><p>Both uniques are composite, so the same store can exist under two platforms without collision. <code>integration_token_expires_at</code> is indexed so the refresh sweeper stays a range scan once you have thousands of stores.</p><h3 id="the-migration-adds-only-what-is-missing">The migration adds only what is missing</h3><pre><code class="language-php">public function up(): void
+    Auth::login($user);
+});</code></pre><p><strong>4.</strong> Guard your routes:</p><pre><code class="language-php">Route::middleware(&#x27;shopifyIntegration.installed&#x27;)-&gt;group(function () {
+    Route::get(&#x27;/dashboard&#x27;, [DashboardController::class, &#x27;index&#x27;]);
+});</code></pre></section><section id="routes"><h2>Routes</h2><p>Registered under <code>routes.prefix</code> (default <code>shopify</code>). Set <code>routes.enabled</code> to <code>false</code> to register your own instead.</p><div class="table-wrap"><table><thead><tr><th>Method</th><th>URI</th><th>Name</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/shopify/auth/begin</code></td><td><code>shopifyIntegration.auth.begin</code></td></tr><tr><td><code>GET</code></td><td><code>/shopify/auth/callback</code></td><td><code>shopifyIntegration.auth.callback</code></td></tr><tr><td><code>POST</code></td><td><code>/shopify/webhooks</code></td><td><code>shopifyIntegration.webhooks</code></td></tr></tbody></table></div></section><section id="middleware"><h2>Middleware</h2><div class="table-wrap"><table><thead><tr><th>Alias</th><th>Use on</th></tr></thead><tbody><tr><td><code>shopifyIntegration.embedded</code></td><td>Page loads inside the admin iframe</td></tr><tr><td><code>shopifyIntegration.session</code></td><td>API requests carrying a session token</td></tr><tr><td><code>shopifyIntegration.installed</code></td><td>Standalone routes needing a working store</td></tr><tr><td><code>shopifyIntegration.hmac</code></td><td>Your own routes Shopify signs</td></tr></tbody></table></div><p>All three store-resolving middleware set <code>ShopifyIntegration::currentStore()</code>. None of them touch <code>Auth::user()</code> — stack your own after them if you want a Laravel user resolved:</p><pre><code class="language-php">class AuthenticateStoreOwner
 {
-    if (! Schema::hasTable(&#x27;integrations&#x27;)) {
-        Schema::create(&#x27;integrations&#x27;, function (Blueprint $table) {
-            $table-&gt;id();
-            $table-&gt;foreignId(&#x27;user_id&#x27;)-&gt;nullable()-&gt;constrained()-&gt;nullOnDelete();
-            $table-&gt;timestamps();
-        });
-    }
+    public function handle($request, Closure $next)
+    {
+        $storeUserId = ShopifyIntegration::currentStore()?-&gt;user_id;
 
-    Schema::table(&#x27;integrations&#x27;, function (Blueprint $table) {
-        $columns = [
-            &#x27;integration_platform&#x27;            =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_platform&#x27;)-&gt;default(&#x27;shopify&#x27;),
-            &#x27;integration_external_id&#x27;         =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_external_id&#x27;)-&gt;nullable(),
-            &#x27;integration_store_domain&#x27;        =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_store_domain&#x27;)-&gt;nullable(),
-            &#x27;integration_domain&#x27;              =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_domain&#x27;)-&gt;nullable(),
-
-            &#x27;integration_access_token&#x27;        =&gt; fn () =&gt; $table-&gt;text(&#x27;integration_access_token&#x27;)-&gt;nullable(),
-            &#x27;integration_refresh_token&#x27;       =&gt; fn () =&gt; $table-&gt;text(&#x27;integration_refresh_token&#x27;)-&gt;nullable(),
-            &#x27;integration_token_expires_at&#x27;    =&gt; fn () =&gt; $table-&gt;timestamp(&#x27;integration_token_expires_at&#x27;)-&gt;nullable(),
-            &#x27;integration_scopes&#x27;              =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_scopes&#x27;)-&gt;nullable(),
-
-            &#x27;integration_installed_at&#x27;        =&gt; fn () =&gt; $table-&gt;timestamp(&#x27;integration_installed_at&#x27;)-&gt;nullable(),
-            &#x27;integration_uninstalled_at&#x27;      =&gt; fn () =&gt; $table-&gt;timestamp(&#x27;integration_uninstalled_at&#x27;)-&gt;nullable(),
-
-            &#x27;integration_name&#x27;                =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_name&#x27;)-&gt;nullable(),
-            &#x27;integration_email&#x27;               =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_email&#x27;)-&gt;nullable(),
-            &#x27;integration_shop_owner&#x27;          =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_shop_owner&#x27;)-&gt;nullable(),
-            &#x27;integration_phone&#x27;               =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_phone&#x27;)-&gt;nullable(),
-            &#x27;integration_currency&#x27;            =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_currency&#x27;)-&gt;nullable(),
-            &#x27;integration_country_code&#x27;        =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_country_code&#x27;)-&gt;nullable(),
-            &#x27;integration_country_name&#x27;        =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_country_name&#x27;)-&gt;nullable(),
-            &#x27;integration_primary_locale&#x27;      =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_primary_locale&#x27;)-&gt;nullable(),
-            &#x27;integration_plan_name&#x27;           =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_plan_name&#x27;)-&gt;nullable(),
-            &#x27;integration_weight_unit&#x27;         =&gt; fn () =&gt; $table-&gt;string(&#x27;integration_weight_unit&#x27;)-&gt;nullable(),
-            &#x27;integration_password_enabled&#x27;    =&gt; fn () =&gt; $table-&gt;boolean(&#x27;integration_password_enabled&#x27;)-&gt;nullable(),
-
-            &#x27;integration_shop_data&#x27;           =&gt; fn () =&gt; $table-&gt;json(&#x27;integration_shop_data&#x27;)-&gt;nullable(),
-            &#x27;integration_shop_data_synced_at&#x27; =&gt; fn () =&gt; $table-&gt;timestamp(&#x27;integration_shop_data_synced_at&#x27;)-&gt;nullable(),
-            &#x27;integration_metadata&#x27;            =&gt; fn () =&gt; $table-&gt;json(&#x27;integration_metadata&#x27;)-&gt;nullable(),
-        ];
-
-        foreach ($columns as $name =&gt; $add) {
-            if (! Schema::hasColumn(&#x27;integrations&#x27;, $name)) {
-                $add();
-            }
+        if ($storeUserId &amp;&amp; $user = User::find($storeUserId)) {
+            Auth::setUser($user);
         }
-    });
 
-    // Indexes are added separately: a duplicate index name is a hard error,
-    // and there is no Schema::hasIndex() before Laravel 11.
-    $this-&gt;addIndexIfMissing(&#x27;integrations&#x27;, [&#x27;integration_platform&#x27;, &#x27;integration_external_id&#x27;], unique: true);
-    $this-&gt;addIndexIfMissing(&#x27;integrations&#x27;, [&#x27;integration_platform&#x27;, &#x27;integration_store_domain&#x27;], unique: true);
-    $this-&gt;addIndexIfMissing(&#x27;integrations&#x27;, [&#x27;user_id&#x27;, &#x27;integration_platform&#x27;]);
-    $this-&gt;addIndexIfMissing(&#x27;integrations&#x27;, [&#x27;integration_platform&#x27;, &#x27;integration_uninstalled_at&#x27;]);
-    $this-&gt;addIndexIfMissing(&#x27;integrations&#x27;, [&#x27;integration_token_expires_at&#x27;]);
-}</code></pre><p><code>integration_store_domain</code> is created nullable even though it is conceptually required: adding a <code>NOT NULL</code> column to a table that already has rows fails. The unique index and package-level validation enforce presence instead.</p><h3 id="the-model">The model</h3><p>Every query is scoped to <code>integration_platform = &#x27;shopify&#x27;</code> automatically — the package has no reason to see any other platform&#x27;s rows.</p><pre><code class="language-php">use ShopGPT\ShopifyIntegration\Models\Integration;
-
-$store = Integration::forDomain(&#x27;acme.myshopify.com&#x27;);
-$store = Integration::forExternalId(&#x27;12345678&#x27;);
-
-$store-&gt;store_domain;     // acme.myshopify.com
-$store-&gt;plan_name;        // &#x27;basic&#x27;
-$store-&gt;shop_data;        // the full shop.json array
-$store-&gt;isInstalled();    // bool
-$store-&gt;hasValidToken();  // bool
-$store-&gt;api();            // API client bound to this store</code></pre><p><strong>You address attributes without the prefix.</strong> <code>$store-&gt;access_token</code> reads <code>integration_access_token</code>. The columns are prefixed so they can share a table; your code should not have to carry that.</p><p>To add your own relations, extend the model and point the config at your subclass:</p><pre><code class="language-php">class Integration extends \ShopGPT\ShopifyIntegration\Models\Integration
+        return $next($request);
+    }
+}</code></pre><p>The package ships no <code>user()</code> relation — it does not know your User model. Add one by subclassing, which is what <code>config.model</code> is for:</p><pre><code class="language-php">class Store extends \ShopGPT\ShopifyIntegration\Models\Integration
 {
     public function user(): BelongsTo
     {
         return $this-&gt;belongsTo(User::class);
     }
-}</code></pre></section><section id="configuration"><h2>Configuration</h2><p><code>config/shopifyIntegration.php</code> in full — it is deliberately short.</p><pre><code class="language-php">return [
-
-    /*
-     * App credentials from your Shopify Partner dashboard.
-     */
-    &#x27;client_id&#x27;     =&gt; env(&#x27;SHOPIFY_CLIENT_ID&#x27;),
-    &#x27;client_secret&#x27; =&gt; env(&#x27;SHOPIFY_CLIENT_SECRET&#x27;),
-    &#x27;api_version&#x27;   =&gt; env(&#x27;SHOPIFY_API_VERSION&#x27;, &#x27;2025-07&#x27;),
-    &#x27;scopes&#x27;        =&gt; env(&#x27;SHOPIFY_SCOPES&#x27;, &#x27;write_products&#x27;),
-
-    &#x27;embedded&#x27; =&gt; [
-        /*
-         * Runs inside the Shopify Admin iframe, authenticating with App Bridge
-         * session tokens. Enables the token-exchange path.
-         */
-        &#x27;enabled&#x27; =&gt; env(&#x27;SHOPIFY_EMBEDDED&#x27;, false),
-
-        /*
-         * Where an authenticated merchant lands inside the admin frame.
-         */
-        &#x27;entry&#x27; =&gt; &#x27;/shopify/app&#x27;,
-    ],
-
-    /*
-     * The Eloquent model for a connected store. Point this at a subclass to
-     * add your own relations.
-     */
-    &#x27;model&#x27; =&gt; ShopGPT\ShopifyIntegration\Models\Integration::class,
-
-    &#x27;oauth&#x27; =&gt; [
-        /*
-         * Where the OAuth state nonce lives between begin and callback.
-         *
-         * &#x27;cache&#x27; (default) keys the nonce by store domain and survives the
-         * third-party-cookie restrictions that break sessions inside the
-         * Shopify Admin iframe. Use &#x27;session&#x27; only for a standalone app you
-         * are certain will never be embedded.
-         */
-        &#x27;state_store&#x27; =&gt; &#x27;cache&#x27;,
-        &#x27;state_ttl&#x27;   =&gt; 300,
-    ],
-
-    &#x27;tokens&#x27; =&gt; [
-        /*
-         * Refresh this many seconds before the token actually expires, so an
-         * in-flight request never races the expiry.
-         */
-        &#x27;refresh_buffer&#x27; =&gt; 300,
-
-        /*
-         * Encrypt tokens at rest using the app key. Leave true.
-         */
-        &#x27;encrypt&#x27; =&gt; true,
-    ],
-
-    &#x27;routes&#x27; =&gt; [
-        &#x27;enabled&#x27;            =&gt; true,
-        &#x27;prefix&#x27;             =&gt; &#x27;shopify&#x27;,
-        &#x27;middleware&#x27;         =&gt; [&#x27;web&#x27;],
-        &#x27;webhook_middleware&#x27; =&gt; [&#x27;api&#x27;],
-    ],
-
-    /*
-     * Where a standalone app lands after the OAuth redirect. A route name, a
-     * URL, or a closure receiving the InstallContext. Embedded apps never
-     * leave the admin frame and ignore these.
-     */
-    &#x27;redirects&#x27; =&gt; [
-        &#x27;after_install&#x27;   =&gt; &#x27;/&#x27;,
-        &#x27;after_reinstall&#x27; =&gt; &#x27;/&#x27;,
-        &#x27;on_failure&#x27;      =&gt; &#x27;/&#x27;,
-    ],
-
-    &#x27;webhooks&#x27; =&gt; [
-        /*
-         * Registered with Shopify after every install and reinstall.
-         * Topic =&gt; queued job. The GDPR topics are mandatory for public apps;
-         * the defaults verify, log and return 200 so you pass review.
-         */
-        &#x27;topics&#x27; =&gt; [
-            &#x27;app/uninstalled&#x27;        =&gt; ShopGPT\ShopifyIntegration\Jobs\HandleAppUninstalled::class,
-            &#x27;shop/redact&#x27;            =&gt; ShopGPT\ShopifyIntegration\Jobs\HandleShopRedact::class,
-            &#x27;customers/redact&#x27;       =&gt; ShopGPT\ShopifyIntegration\Jobs\HandleCustomersRedact::class,
-            &#x27;customers/data_request&#x27; =&gt; ShopGPT\ShopifyIntegration\Jobs\HandleCustomersDataRequest::class,
-
-            // &#x27;products/update&#x27; =&gt; App\Jobs\SyncShopifyProduct::class,
-        ],
-
-        &#x27;queue&#x27;       =&gt; env(&#x27;SHOPIFY_WEBHOOK_QUEUE&#x27;, &#x27;default&#x27;),
-        &#x27;log_channel&#x27; =&gt; env(&#x27;SHOPIFY_WEBHOOK_LOG&#x27;, null),
-    ],
-];</code></pre><p>There is no <code>auth</code> section, no <code>columns</code> map and no platform <code>scope</code>. Those were three ways of asking your app to describe itself to the package. The column names are fixed, the platform is always <code>shopify</code>, and everything about users belongs to you — reached through <a href="#hooking-into-the-flow">events</a>, not configuration.</p></section><section id="core-concepts"><h2>Core concepts</h2><h3 id="the-store-is-the-tenant">The store is the tenant</h3><p>Every connected store is one row. Everything the package does is scoped to it: tokens, API calls, webhooks, rate limits. Lookups resolve by <code>integration_external_id</code> first and <code>integration_store_domain</code> second, since the external id is the durable key.</p><h3 id="the-package-never-touches-your-users">The package never touches your users</h3><p>It has no guard, no login call, no <code>User</code> model and no opinion about what an account is. What it does instead:</p><ol><li>Stores the connected store and its tokens.</li><li>Fires <code>StoreInstalled</code> / <code>StoreReinstalled</code> / <code>StoreUninstalled</code>.</li><li>Exposes <code>ShopifyIntegration::currentStore()</code> on authenticated requests.</li></ol><p>Everything else — creating an account, seeding credits, logging someone in, choosing which of two accounts a second store attaches to — happens in your listener, in your app, where the rules actually live. That is the difference between a package <code>prompt-form</code> (synthetic accounts, no humans), <code>atelier</code> (password-setup flow) and <code>shopGPT-app</code> (credits, plans, account-choice screen) can all install unchanged, and one that needs a config option per app.</p><h3 id="offline-tokens-only">Offline tokens only</h3><p>Shopify issues two kinds of access token. The package uses one.</p><div class="table-wrap"><table><thead><tr><th></th><th><strong>Offline</strong> — what this package uses</th><th><strong>Online</strong> — not supported</th></tr></thead><tbody><tr><td>Tied to</td><td>The store</td><td>One logged-in staff user</td></tr><tr><td>Lifetime</td><td>~24h, refreshable indefinitely</td><td>~24h, not refreshable</td></tr><tr><td>Rows needed</td><td>One per store</td><td>One per user, per store</td></tr><tr><td>Works in a queued job</td><td>Yes</td><td>No — expires with the user&#x27;s session</td></tr></tbody></table></div><p>Background work is the whole point of a multi-tenant app: catalog imports, webhook handlers, scheduled syncs. Those run when nobody is logged in, which online tokens cannot do.</p><h3 id="two-tokens-doing-different-jobs">Two tokens, doing different jobs</h3><p>This is the distinction that makes embedded apps confusing:</p><div class="table-wrap"><table><thead><tr><th></th><th><strong>Session token</strong></th><th><strong>Access token</strong></th></tr></thead><tbody><tr><td>Proves</td><td><em>This request came from a merchant in Shopify Admin</em></td><td><em>This app may call the Admin API for this store</em></td></tr><tr><td>Lifetime</td><td>~1 minute</td><td>~24 hours, refreshable</td></tr><tr><td>Lives in</td><td>The <code>Authorization: Bearer</code> header</td><td>Your database, encrypted</td></tr><tr><td>Issued by</td><td>App Bridge, client side</td><td>Shopify&#x27;s OAuth endpoint</td></tr></tbody></table></div><p>A session token <strong>never</strong> talks to the Admin API. An access token <strong>never</strong> authenticates a browser request. The package trades the first for the second by token exchange, once, then keeps the second fresh.</p><h3 id="the-access-token-lifecycle">The access token lifecycle</h3><pre><code>install / token exchange ──► access_token (~24h) + refresh_token
-              │
-              ├─ every API call: is expiry &lt; now + refresh_buffer?
-              │      no  ──► use it
-              │      yes ──► POST grant_type=refresh_token, save, use it
-              │
-              └─ refresh fails but token still valid ──► carry on, retry next call
-                 refresh fails and token expired      ──► throw, let the job retry</code></pre><p>You never call the refresh yourself. Every path into the Shopify API runs <code>ensureFreshToken()</code> first. Tokens are encrypted at rest and hidden from array and JSON serialisation.</p></section><section id="hooking-into-the-flow"><h2>Hooking into the flow</h2><p>Events are the extension point. Every one carries the store model.</p><div class="table-wrap"><table><thead><tr><th>Event</th><th>Fired when</th></tr></thead><tbody><tr><td><code>OAuthStarted</code></td><td>A merchant hits the install route</td></tr><tr><td><code>StoreInstalled</code></td><td>A store the app has never seen was authorised</td></tr><tr><td><code>StoreReinstalled</code></td><td>A previously uninstalled store came back</td></tr><tr><td><code>StoreTokenExchanged</code></td><td>An access token was obtained from a session token</td></tr><tr><td><code>StoreTokenRefreshed</code></td><td>An access token was rotated</td></tr><tr><td><code>StoreUninstalled</code></td><td><code>app/uninstalled</code> arrived, or an API call got a 401</td></tr><tr><td><code>OAuthFailed</code></td><td>HMAC, state, or token exchange failed</td></tr></tbody></table></div><pre><code class="language-php">namespace App\Listeners;
-
-use ShopGPT\ShopifyIntegration\Events\StoreInstalled;
-
-class CreateUserForStore
-{
-    public function handle(StoreInstalled $event): void
-    {
-        $store = $event-&gt;store;
-
-        $user = User::firstOrCreate(
-            [&#x27;email&#x27; =&gt; $store-&gt;email],
-            [
-                &#x27;name&#x27;       =&gt; $store-&gt;shop_owner,
-                &#x27;password&#x27;   =&gt; Hash::make(Str::random(32)),
-                &#x27;login_type&#x27; =&gt; &#x27;shopify&#x27;,
-                &#x27;currency&#x27;   =&gt; $store-&gt;currency,
-                &#x27;credits&#x27;    =&gt; Plan::getFreePlan()-&gt;credits,
-            ],
-        );
-
-        $store-&gt;update([&#x27;user_id&#x27; =&gt; $user-&gt;id]);
-
-        // Your app decides whether to log anyone in.
-        session()-&gt;regenerate();
-        Auth::login($user, remember: true);
-    }
-}</code></pre><p>The eleven promoted profile columns are already populated on <code>$event-&gt;store</code> by the time your listener runs, so you rarely need <code>shop_data</code>.</p><p><code>InstallContext</code> is available as <code>$event-&gt;context</code> when you need more:</p><pre><code class="language-php">$event-&gt;context-&gt;shopData;          // raw shop.json array
-$event-&gt;context-&gt;isNewInstall;
-$event-&gt;context-&gt;isReinstall;
-$event-&gt;context-&gt;viaTokenExchange;  // arrived embedded, not through the redirect
-$event-&gt;context-&gt;scopes;            // scopes Shopify actually granted</code></pre><div class="note"><p><span class="note-label">If your listener logs someone in, regenerate the session first.</span> Calling <code>Auth::login()</code> on the existing session id is a session-fixation hole. The package cannot do this for you, because it does not know whether you want a login at all.</p></div><div class="note"><p><span class="note-label">Never reassign a store to whoever is logged in.</span> On a reinstall, <code>$event-&gt;store-&gt;user_id</code> is already set — keep it. Attaching a returning store to the current session&#x27;s user is how one merchant ends up with another merchant&#x27;s storefront, and it is an easy mistake to make in a listener.</p></div></section><section id="embedded-authentication"><h2>Embedded authentication</h2><p>Everything here is what <code>prompt-form</code> proved in production, moved behind package middleware.</p><h3 id="the-request-lifecycle">The request lifecycle</h3><pre><code>Shopify Admin
-     │  loads iframe: /shopify/app?shop=acme.myshopify.com&amp;host=…
-     ▼
-shopifyIntegration.embedded ─── shop param looks valid ──► render the host view
-     │                                             │
-     │                                             ▼
-     │                              App Bridge boots, mints a session token
-     │                                             │
-     │                                   fetch(&#x27;/api/…&#x27;, Bearer &lt;jwt&gt;)
-     │                                             ▼
-     └──────────────────────────────────► shopifyIntegration.session
-                                                   │
-                          verify JWT: signature, exp, nbf, aud, iss, dest
-                                                   │
-                              ┌────────────────────┴────────────────────┐
-                       store has an access token             store has none
-                              │                                        │
-                              ▼                                        ▼
-                 ShopifyIntegration::currentStore() set                token exchange,
-                                                            store, continue</code></pre><p>Note what is <em>absent</em>: no redirect, no consent screen, no cookie.</p><h3 id="session-token-verification">Session token verification</h3><p>A partial check here is an authentication bypass, so every claim is validated:</p><div class="table-wrap"><table><thead><tr><th>Check</th><th>Why</th></tr></thead><tbody><tr><td>HS256 signature against <code>client_secret</code></td><td>Proves Shopify minted it</td></tr><tr><td><code>exp</code> in the future (10s leeway)</td><td>Tokens live ~1 minute; leeway absorbs clock skew</td></tr><tr><td><code>nbf</code> not in the future (10s leeway)</td><td>Rejects not-yet-valid tokens</td></tr><tr><td><code>aud</code> equals your <code>client_id</code></td><td>A token minted for a <em>different app</em> must not authenticate yours</td></tr><tr><td><code>iss</code> matches <code>https://{shop}.myshopify.com/admin</code></td><td>Rejects a forged issuer</td></tr><tr><td><code>dest</code> matches <code>https://{shop}.myshopify.com</code></td><td>This is the store you resolve from</td></tr><tr><td><code>iss</code> and <code>dest</code> name the <strong>same</strong> store</td><td>Otherwise a token for store A could act on store B</td></tr></tbody></table></div><p>That last row is the one hand-rolled implementations miss. The store is resolved from <code>dest</code>, so a token whose <code>iss</code> and <code>dest</code> disagree must never be treated as authenticated.</p><pre><code class="language-php">$claims = ShopifyIntegration::verifySessionToken($jwt);   // array|null
-$domain = ShopifyIntegration::storeFromClaims($claims);   // acme.myshopify.com</code></pre><h3 id="token-exchange">Token exchange</h3><p>When a verified session token arrives for a store with no stored access token, the package exchanges it — silently, server side, no merchant-visible redirect:</p><pre><code>POST https://{shop}/admin/oauth/access_token
-
-  client_id             = …
-  client_secret         = …
-  grant_type            = urn:ietf:params:oauth:grant-type:token-exchange
-  subject_token         = &lt;the session token&gt;
-  subject_token_type    = urn:ietf:params:oauth:token-type:id_token
-  requested_token_type  = urn:shopify:params:oauth:token-type:offline-access-token
-  expiring              = 1</code></pre><p>This is why a modern embedded app can skip the OAuth redirect entirely on install. It is also the recovery path: if a token is revoked, the next request quietly re-obtains one instead of bouncing the merchant out of the admin.</p><h3 id="what-shopifyintegrationsession-answers-with">What <code>shopifyIntegration.session</code> answers with</h3><p>The two failure modes get different statuses because the front end can only recover from one of them on its own.</p><div class="table-wrap"><table><thead><tr><th>Status</th><th>Body</th><th>What the client should do</th></tr></thead><tbody><tr><td><code>401</code></td><td><code>{&quot;error&quot;: &quot;session_token_missing&quot;}</code></td><td>Attach a token</td></tr><tr><td><code>401</code></td><td><code>{&quot;error&quot;: &quot;session_token_invalid&quot;}</code></td><td>Mint a fresh token, retry <strong>once</strong></td></tr><tr><td><code>403</code></td><td><code>{&quot;error&quot;: &quot;reauthorization_required&quot;, &quot;url&quot;: &quot;…&quot;}</code></td><td>Break out of the frame to <code>url</code></td></tr></tbody></table></div><p>Session tokens live about a minute, so a <code>401</code> is routine rather than hostile — a tab left open over lunch produces one. A <code>403</code> means the token was perfectly good but the app has no usable install behind it, and no amount of retrying will change that.</p><p>Collapsing both into <code>401</code> is what produces the retry loop embedded apps are notorious for: the client cheerfully mints valid token after valid token for a store that was uninstalled last week.</p><h3 id="the-front-end">The front end</h3><pre><code class="language-js">import { useAppBridge } from &#x27;@shopify/app-bridge-react&#x27;;
-
-const shopify = useAppBridge();
-
-instance.interceptors.request.use(async (config) =&gt; {
-    config.headers.Authorization = `Bearer ${await shopify.idToken()}`;
-    return config;
-});
-
-instance.interceptors.response.use(null, async (error) =&gt; {
+}</code></pre><pre><code class="language-php">&#x27;model&#x27; =&gt; App\Models\Store::class,</code></pre><h3 id="what-shopifyintegrationsession-answers-with">What <code>shopifyIntegration.session</code> answers with</h3><div class="table-wrap"><table><thead><tr><th>Status</th><th>Body</th><th>What the client should do</th></tr></thead><tbody><tr><td><code>401</code></td><td><code>{&quot;error&quot;: &quot;session_token_missing&quot;}</code></td><td>Attach a token</td></tr><tr><td><code>401</code></td><td><code>{&quot;error&quot;: &quot;session_token_invalid&quot;}</code></td><td>Mint a fresh token, retry <strong>once</strong></td></tr><tr><td><code>403</code></td><td><code>{&quot;error&quot;: &quot;reauthorization_required&quot;, &quot;url&quot;: &quot;…&quot;}</code></td><td>Break out of the frame to <code>url</code></td></tr></tbody></table></div><p>Session tokens live about a minute, so a <code>401</code> is routine. A <code>403</code> means the app has no usable install behind the token and retrying will not help.</p><pre><code class="language-js">instance.interceptors.response.use(null, async (error) =&gt; {
     const { status, data } = error.response ?? {};
 
-    // Stale token — mint a fresh one and retry exactly once.
     if (status === 401 &amp;&amp; !error.config._retried) {
         error.config._retried = true;
         error.config.headers.Authorization = `Bearer ${await shopify.idToken()}`;
         return instance.request(error.config);
     }
 
-    // No usable install — full-page redirect, out of the iframe.
     if (status === 403 &amp;&amp; data?.error === &#x27;reauthorization_required&#x27;) {
         window.top.location.href = data.url;
     }
 
     return Promise.reject(error);
-});</code></pre><p><code>window.top.location</code> matters: redirecting <code>window.location</code> navigates the iframe, and Shopify&#x27;s OAuth screen refuses to render framed.</p><div class="note"><p><span class="note-label">If you are porting from <code>prompt-form</code>,</span> its <code>useAuthenticatedFetch</code> retries on 400/403 and redirects on 401 — the opposite way round. That was a consequence of its own <code>ApiAuth</code> returning 401 when it could not resolve a user. This package follows the HTTP meanings instead: 401 is <em>not authenticated</em>, 403 is <em>authenticated but there is nothing to act on</em>.</p></div><h3 id="framing-and-the-exit-iframe-redirect">Framing and the exit-iframe redirect</h3><p><code>shopifyIntegration.embedded</code> sets the header Shopify requires on every page it lets through, naming the merchant&#x27;s own admin as the only permitted framers:</p><pre><code>Content-Security-Policy: frame-ancestors https://{shop} https://admin.shopify.com;</code></pre><p>It also strips <code>X-Frame-Options</code>. Laravel sends none by default, but a security package or a reverse proxy often adds one globally — and the symptom is an app that renders as a blank rectangle inside the admin with nothing in the response to explain why.</p><p>When the store needs OAuth, the middleware cannot simply return a <code>302</code>: Shopify&#x27;s authorize page refuses to be framed, so the redirect would resolve inside the iframe and paint an empty box. It returns a minimal HTML page that moves <code>window.top</code> instead — dependency-free, because the case where the app is not installed is exactly the case where booting your bundle is pointless.</p><p>A request that was never framed (no <code>host</code>, no <code>embedded=1</code>) gets an ordinary redirect.</p><h3 id="shopifyapptoml">shopify.app.toml</h3><pre><code class="language-toml">name = &quot;Your App&quot;
-client_id = &quot;…&quot;
-application_url = &quot;https://your-app.com/shopify/auth/begin&quot;
-embedded = true
+});</code></pre><p><code>shopifyIntegration.embedded</code> sets <code>Content-Security-Policy: frame-ancestors</code> for the merchant&#x27;s admin and clears <code>X-Frame-Options</code>, so a global <code>X-Frame-Options</code> elsewhere in your stack will not blank the app.</p></section><section id="the-facade"><h2>The facade</h2><pre><code class="language-php">use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;</code></pre><div class="table-wrap"><table><thead><tr><th>Method</th><th>Returns</th><th>Notes</th></tr></thead><tbody><tr><td><code>currentStore()</code></td><td><code>?Integration</code></td><td>The store this request is acting as</td></tr><tr><td><code>setCurrentStore(?Integration)</code></td><td><code>void</code></td><td></td></tr><tr><td><code>asStore(Integration, callable)</code></td><td><code>mixed</code></td><td>Runs the callback as that store, then restores</td></tr><tr><td><code>forDomain(string)</code></td><td><code>?Integration</code></td><td>Look a store up by <code>acme.myshopify.com</code></td></tr><tr><td><code>ensureFreshToken(Integration)</code></td><td><code>Integration</code></td><td>Refreshes if near expiry</td></tr><tr><td><code>refreshToken(Integration)</code></td><td><code>Integration</code></td><td>Forces a refresh</td></tr><tr><td><code>verifySessionToken(?string)</code></td><td><code>?array</code></td><td>Claims, or null if invalid</td></tr><tr><td><code>storeFromClaims(?array)</code></td><td><code>?string</code></td><td>The shop domain a claims array names</td></tr><tr><td><code>exchangeToken(string, string)</code></td><td><code>?Integration</code></td><td>Session token → stored access token</td></tr><tr><td><code>installUrl(string)</code></td><td><code>string</code></td><td>For a &quot;connect your store&quot; button</td></tr><tr><td><code>redirectUri()</code></td><td><code>string</code></td><td>The callback URL, for your Partner dashboard</td></tr><tr><td><code>model()</code></td><td><code>class-string</code></td><td>The configured model class</td></tr><tr><td><code>sessionTokenHeaders(…)</code></td><td><code>array</code></td><td>Test support</td></tr><tr><td><code>webhookHeaders(…)</code></td><td><code>array</code></td><td>Test support</td></tr></tbody></table></div><p><code>asStore()</code> is the guard rail for queued jobs and loops over stores:</p><pre><code class="language-php">foreach (Integration::installed()-&gt;cursor() as $store) {
+    ShopifyIntegration::asStore($store, function ($store) {
+        $store-&gt;api()-&gt;graphql($query);
+    });
+}</code></pre></section><section id="the-store-model"><h2>The store model</h2><p><code>ShopGPT\ShopifyIntegration\Models\Integration</code>. All queries are scoped to Shopify rows automatically.</p><div class="table-wrap"><table><thead><tr><th>Method</th><th>Returns</th><th></th></tr></thead><tbody><tr><td><code>Integration::forDomain($domain)</code></td><td><code>?static</code></td><td></td></tr><tr><td><code>Integration::forExternalId($id)</code></td><td><code>?static</code></td><td></td></tr><tr><td><code>Integration::resolve($externalId, $domain)</code></td><td><code>?static</code></td><td>Id first, domain second</td></tr><tr><td><code>Integration::installed()</code></td><td>scope</td><td></td></tr><tr><td><code>$store-&gt;isInstalled()</code></td><td><code>bool</code></td><td></td></tr><tr><td><code>$store-&gt;hasValidToken()</code></td><td><code>bool</code></td><td></td></tr><tr><td><code>$store-&gt;tokenExpiresSoon($buffer = null)</code></td><td><code>bool</code></td><td></td></tr><tr><td><code>$store-&gt;hasRequiredScopes($required = null)</code></td><td><code>bool</code></td><td>Against <code>config.scopes</code></td></tr><tr><td><code>$store-&gt;needsReauthorization()</code></td><td><code>bool</code></td><td>No valid token, or missing scopes</td></tr><tr><td><code>$store-&gt;api()</code></td><td><code>ApiClient</code></td><td>Token guaranteed fresh</td></tr><tr><td><code>$store-&gt;markUninstalled()</code></td><td><code>void</code></td><td></td></tr><tr><td><code>$store-&gt;redact()</code></td><td><code>void</code></td><td>Clears the PII columns</td></tr></tbody></table></div><p>Attributes are read without the <code>integration_</code> prefix:</p><pre><code class="language-php">$store-&gt;store_domain;      // acme.myshopify.com
+$store-&gt;domain;            // acme.com
+$store-&gt;access_token;      // decrypted
+$store-&gt;scopes;
+$store-&gt;token_expires_at;  // Carbon|null
+$store-&gt;shop_data;         // array — the whole shop.json
+$store-&gt;plan_name;</code></pre></section><section id="calling-the-admin-api"><h2>Calling the Admin API</h2><p><code>$store-&gt;api()</code> returns a client bound to that store, with the token refreshed first. You never pass a token or a domain.</p><pre><code class="language-php">$api = $store-&gt;api();
 
-# Managed install: Shopify handles the grant screen and scope changes.
-use_legacy_install_flow = false
+// GraphQL
+$api-&gt;graphql(&#x27;query { shop { name } }&#x27;);
+$api-&gt;graphql($query, [&#x27;first&#x27; =&gt; 10]);
 
-[access_scopes]
-scopes = &quot;write_products&quot;
-
-[auth]
-redirect_urls = [ &quot;https://your-app.com/shopify/auth/callback&quot; ]
-
-[webhooks]
-api_version = &quot;2025-07&quot;
-
-  [[webhooks.subscriptions]]
-  topics = [ &quot;app/uninstalled&quot; ]
-  uri = &quot;https://your-app.com/shopify/webhooks&quot;</code></pre></section><section id="the-oauth-install-flow"><h2>The OAuth install flow</h2><p>Used by standalone apps, and by embedded apps as the re-auth fallback.</p><div class="table-wrap"><table><thead><tr><th>Method</th><th>URI</th><th>Name</th></tr></thead><tbody><tr><td><code>GET</code></td><td><code>/shopify/auth/begin</code></td><td><code>shopifyIntegration.auth.begin</code></td></tr><tr><td><code>GET</code></td><td><code>/shopify/auth/callback</code></td><td><code>shopifyIntegration.auth.callback</code></td></tr><tr><td><code>POST</code></td><td><code>/shopify/webhooks</code></td><td><code>shopifyIntegration.webhooks</code></td></tr></tbody></table></div><pre><code> 1. Validate the store domain against Shopify&#x27;s hostname rules
- 2. Require and verify the HMAC using client_secret        ← rejects forged installs
- 3. Generate a state nonce, store it in the CACHE keyed by store
- 4. Redirect to https://{shop}/admin/oauth/authorize
-
- 5. Re-validate the domain and verify the HMAC again
- 6. Pull the state from the cache, compare with hash_equals
- 7. POST /admin/oauth/access_token with expiring=1
- 8. GET  /admin/api/{version}/shop.json  → the store profile
- 9. Look up by integration_external_id, then integration_store_domain
-10. Save: encrypted tokens, expiry, scopes, the 11 profile columns,
-          the raw payload into integration_shop_data, integration_installed_at
-11. Register every webhook topic in config (idempotent — safe on reinstall)
-12. Fire StoreInstalled or StoreReinstalled   ← your listener runs here
-13. Redirect: embedded apps back into the admin frame, standalone per config</code></pre><p>Steps 2, 5 and 6 are security-critical and are not optional.</p><h3 id="a-note-on-hmac-construction">A note on HMAC construction</h3><p>Shopify&#x27;s query-string HMAC is computed over the parameters sorted by key and joined as <code>key=value</code> pairs with <code>&amp;</code> — <strong>not</strong> <code>http_build_query()</code>, which percent-encodes values and produces a different digest for any parameter containing a space or slash.</p><pre><code class="language-php">$params = $request-&gt;except(&#x27;hmac&#x27;);
-ksort($params);
-
-$message = collect($params)-&gt;map(fn ($v, $k) =&gt; &quot;{$k}={$v}&quot;)-&gt;implode(&#x27;&amp;&#x27;);
-
-hash_equals(hash_hmac(&#x27;sha256&#x27;, $message, $secret), $request-&gt;query(&#x27;hmac&#x27;));</code></pre></section><section id="making-api-calls"><h2>Making API calls</h2><pre><code class="language-php">$api = $store-&gt;api();          // or ShopifyIntegration::for($store)</code></pre><h3 id="graphql">GraphQL</h3><pre><code class="language-php">$response = $api-&gt;graphql(&lt;&lt;&lt;&#x27;GQL&#x27;
-    query getProducts($first: Int!) {
-        products(first: $first) { edges { node { id title } } }
-    }
-GQL, [&#x27;first&#x27; =&gt; 50]);
-
-$response-&gt;json(&#x27;data.products.edges&#x27;);
-$response-&gt;throw();  // raises on userErrors as well as HTTP errors</code></pre><h3 id="rest">REST</h3><pre><code class="language-php">$api-&gt;rest()-&gt;get(&#x27;products.json&#x27;, [&#x27;limit&#x27; =&gt; 250]);
-$api-&gt;rest()-&gt;post(&#x27;products.json&#x27;, [&#x27;product&#x27; =&gt; [...]]);</code></pre><h3 id="pagination">Pagination</h3><div class="note"><p><span class="note-label">Not built yet.</span> <code>$api-&gt;paginate()</code> is planned; cursor loops are yours to write for now. The intended shape:</p></div><pre><code class="language-php">foreach ($api-&gt;paginate(&#x27;products&#x27;, [&#x27;first&#x27; =&gt; 250]) as $product) {
-    // cursor pagination handled for you, one page in memory at a time
-}</code></pre><h3 id="rate-limits">Rate limits</h3><p>The GraphQL leaky bucket is read from <code>extensions.cost.throttleStatus</code> after each response. When it drops below 20% the client sleeps just long enough for the bucket to refill — capped at 5 seconds, so a badly throttled store slows a worker down instead of hanging a web request.</p><p>A genuine <code>429</code> throws <code>RateLimitedException</code> carrying <code>retryAfter</code>, taken from Shopify&#x27;s <code>Retry-After</code> header. It is left for the caller to handle: only your code knows whether this work should be retried inline or released back to the queue.</p><div class="note"><p><span class="note-label">Not built yet.</span> REST call-limit headers (<code>X-Shopify-Shop-Api-Call-Limit</code>) are not read; only the GraphQL bucket is.</p></div><h3 id="when-the-app-has-been-uninstalled">When the app has been uninstalled</h3><p>A 401 means the merchant removed the app. The client throws <code>StoreUninstalledException</code>, stamps <code>integration_uninstalled_at</code>, and fires <code>StoreUninstalled</code> — so your cleanup listeners run from one place whether you learned it from the webhook or an API call.</p><pre><code class="language-php">try {
-    $api-&gt;graphql($query);
+// REST
+$api-&gt;get(&#x27;products.json&#x27;, [&#x27;limit&#x27; =&gt; 50]);
+$api-&gt;post(&#x27;products.json&#x27;, [&#x27;product&#x27; =&gt; [...]]);
+$api-&gt;put(&#x27;products/123.json&#x27;, [&#x27;product&#x27; =&gt; [...]]);
+$api-&gt;delete(&#x27;products/123.json&#x27;);</code></pre><p>All five return an <code>Illuminate\Http\Client\Response</code>.</p><p>GraphQL cost is read from <code>extensions.cost.throttleStatus</code> after each response; when the bucket drops below 20% the client waits for it to refill, capped at 5 seconds.</p></section><section id="errors"><h2>Errors</h2><div class="table-wrap"><table><thead><tr><th>Status</th><th>Exception</th><th>Store flagged uninstalled</th></tr></thead><tbody><tr><td>401</td><td><code>StoreUninstalledException</code></td><td>Yes — also fires <code>StoreUninstalled</code></td></tr><tr><td>402</td><td><code>StoreUnavailableException</code> (<code>isFrozen()</code>)</td><td>No — unpaid, comes back</td></tr><tr><td>423</td><td><code>StoreUnavailableException</code> (<code>isLocked()</code>)</td><td>No — locked by Shopify</td></tr><tr><td>429</td><td><code>RateLimitedException</code> (<code>$e-&gt;retryAfter</code>)</td><td>No</td></tr><tr><td>other</td><td><code>ShopifyApiException</code></td><td>No</td></tr></tbody></table></div><p>Every one of them carries <code>$e-&gt;store</code>. <code>ShopifyApiException</code> and its subclasses also carry <code>$e-&gt;body</code>.</p><pre><code class="language-php">try {
+    $store-&gt;api()-&gt;graphql($query);
 } catch (StoreUninstalledException $e) {
-    $e-&gt;store;   // already flagged uninstalled
-}</code></pre><h3 id="not-every-failure-is-an-uninstall">Not every failure is an uninstall</h3><p>A <code>402</code> (unpaid) and a <code>423</code> (locked) are easy to lump in with <code>401</code>, and doing so is destructive: the store is flagged uninstalled, <code>StoreUninstalled</code> listeners run, and a merchant whose card simply bounced comes back to an app that has deleted their data. These throw <code>StoreUnavailableException</code> and leave the install alone.</p><div class="table-wrap"><table><thead><tr><th>Status</th><th>Exception</th><th>Store flagged uninstalled</th></tr></thead><tbody><tr><td>401</td><td><code>StoreUninstalledException</code></td><td>Yes — the token is gone for good</td></tr><tr><td>402</td><td><code>StoreUnavailableException</code> (<code>isFrozen()</code>)</td><td>No — unpaid, comes back</td></tr><tr><td>423</td><td><code>StoreUnavailableException</code> (<code>isLocked()</code>)</td><td>No — locked by Shopify</td></tr><tr><td>429</td><td><code>RateLimitedException</code> (<code>$e-&gt;retryAfter</code>)</td><td>No</td></tr><tr><td>other</td><td><code>ShopifyApiException</code></td><td>No</td></tr></tbody></table></div></section><section id="webhooks"><h2>Webhooks</h2><h3 id="registration">Registration</h3><p>Every topic in config is registered after each install and reinstall, via a queued idempotent job. Reinstalls matter: Shopify drops all subscriptions on uninstall, so they must be recreated, and re-registering an existing topic is a no-op.</p><p>Topics declared in <code>shopify.app.toml</code> are managed by Shopify instead — declare them in one place or the other, not both.</p><pre><code class="language-bash">php artisan shopifyIntegration:webhooks:sync
-php artisan shopifyIntegration:webhooks:sync --store=acme.myshopify.com</code></pre><h3 id="handling">Handling</h3><p>The middleware verifies the HMAC against the <strong>raw body</strong>, the controller resolves the store from <code>X-Shopify-Shop-Domain</code>, dispatches the configured job, and returns <code>200</code> immediately — Shopify&#x27;s timeout is 5 seconds, so all real work belongs on the queue.</p><pre><code class="language-php">namespace App\Jobs;
+    // already flagged; your StoreUninstalled listeners have run
+} catch (RateLimitedException $e) {
+    $this-&gt;release($e-&gt;retryAfter);
+} catch (StoreUnavailableException $e) {
+    // still installed — try again later
+}</code></pre><p><code>TokenRefreshException</code> is thrown when a refresh fails <strong>and</strong> the stored token has already expired. A failed refresh on a still-valid token is not fatal.</p></section><section id="events"><h2>Events</h2><p>The extension point. Everything your app does beyond Shopify itself hangs off these.</p><div class="table-wrap"><table><thead><tr><th>Event</th><th>Fired when</th><th>Carries</th></tr></thead><tbody><tr><td><code>OAuthStarted</code></td><td>An install begins</td><td><code>$shop</code></td></tr><tr><td><code>OAuthFailed</code></td><td>HMAC, state or exchange failed</td><td><code>$shop</code>, <code>$reason</code>, <code>$exception</code></td></tr><tr><td><code>StoreInstalled</code></td><td>A store the app had never seen authorised</td><td><code>$store</code>, <code>$context</code></td></tr><tr><td><code>StoreReinstalled</code></td><td>A previously uninstalled store came back</td><td><code>$store</code>, <code>$context</code></td></tr><tr><td><code>StoreTokenExchanged</code></td><td>An access token came from a session token</td><td><code>$store</code></td></tr><tr><td><code>StoreTokenRefreshed</code></td><td>A token was refreshed</td><td><code>$store</code></td></tr><tr><td><code>StoreUninstalled</code></td><td>The webhook or a 401 said so</td><td><code>$store</code></td></tr></tbody></table></div><p><code>$context</code> is an <code>InstallContext</code>:</p><pre><code class="language-php">$context-&gt;store;              // Integration
+$context-&gt;shopData;           // array — raw shop.json
+$context-&gt;isNewInstall;       // bool
+$context-&gt;isReinstall;        // bool
+$context-&gt;viaTokenExchange;   // bool — arrived embedded, not through the redirect
+$context-&gt;scopes;             // string|null — what Shopify granted
+$context-&gt;host;               // string|null — the host param, embedded only
 
-use ShopGPT\ShopifyIntegration\Jobs\WebhookJob;
+$context-&gt;domain();           // acme.myshopify.com
+$context-&gt;shopOwner();
+$context-&gt;email();
+$context-&gt;currency();
+$context-&gt;profile();          // the 11 promoted columns as an array
+$context-&gt;isDevelopmentStore();
+$context-&gt;uniqueEmail($fallbackDomain, $isTaken);</code></pre><p><code>uniqueEmail()</code> matters when one person runs several stores: Shopify gives the same contact address on each, so a unique constraint on <code>users.email</code> would reject the second. It returns a stable synthetic address when the real one is taken.</p><p><code>isDevelopmentStore()</code> matters for billing — a dev store cannot be charged live.</p></section><section id="webhooks"><h2>Webhooks</h2><p>The endpoint is <code>POST /shopify/webhooks</code>. Point Shopify at it, then map topics to jobs in config:</p><pre><code class="language-php">&#x27;topics&#x27; =&gt; [
+    &#x27;app/uninstalled&#x27;        =&gt; HandleAppUninstalled::class,
+    &#x27;shop/update&#x27;            =&gt; HandleShopUpdate::class,
+    &#x27;shop/redact&#x27;            =&gt; HandleShopRedact::class,
+    &#x27;customers/redact&#x27;       =&gt; HandleCustomersRedact::class,
+    &#x27;customers/data_request&#x27; =&gt; HandleCustomersDataRequest::class,
+
+    &#x27;products/update&#x27;        =&gt; App\Jobs\SyncShopifyProduct::class,
+],</code></pre><p>Those five ship with the package. The three GDPR topics are mandatory for public apps and the shipped handlers are enough to pass review.</p><h3 id="writing-a-handler">Writing a handler</h3><p>Extend <code>WebhookJob</code>:</p><pre><code class="language-php">use ShopGPT\ShopifyIntegration\Jobs\WebhookJob;
 
 class SyncShopifyProduct extends WebhookJob
 {
     public function handle(): void
     {
-        $this-&gt;store;             // resolved for you
-        $this-&gt;payload;
-        $this-&gt;topic;             // &#x27;products/update&#x27;
-        $this-&gt;webhookId;         // X-Shopify-Webhook-Id, for deduplication
+        $this-&gt;store;        // Integration, resolved for you
+        $this-&gt;topic;        // &#x27;products/update&#x27;
+        $this-&gt;payload;      // array
+        $this-&gt;webhookId;    // X-Shopify-Webhook-Id
 
-        $this-&gt;store-&gt;api()-&gt;graphql(/* re-fetch the product */);
+        $this-&gt;resourceId(); // $payload[&#x27;id&#x27;]
     }
-}</code></pre><p><code>WebhookJob</code> carries the whole payload across the queue by default, because the GDPR topics genuinely need it — <code>customers/redact</code> names the customer to erase, and a job that dropped the body would have nothing to act on.</p><p>Trim it per topic by overriding <code>payloadForQueue()</code>:</p><pre><code class="language-php">protected function payloadForQueue(array $payload): array
+}</code></pre><p>The job carries the whole payload by default. Trim it for high-volume topics:</p><pre><code class="language-php">protected static function payloadForQueue(array $payload): array
 {
     return [&#x27;id&#x27; =&gt; $payload[&#x27;id&#x27;]];
-}</code></pre><p>Do that for anything high-volume. A single <code>products/update</code> body runs to ~110KB and a busy store repeats it every few seconds, so a job that re-fetches the resource anyway should carry only the id. The default errs towards keeping data a handler might need; the override is how you keep Redis healthy.</p><p>Bodies are never logged. Each webhook logs topic, store domain, resource id and payload size.</p><h3 id="gdpr-topics">GDPR topics</h3><p><code>shop/redact</code>, <code>customers/redact</code> and <code>customers/data_request</code> are mandatory for public apps. The shipped handlers verify, log and <code>200</code> so you pass review.</p><p><strong><code>shop/redact</code> clears PII from both places it lives</strong> — <code>integration_shop_data</code> <em>and</em> the promoted <code>integration_email</code>, <code>integration_phone</code> and <code>integration_shop_owner</code> columns. Shopify requires this within 48 hours of uninstall and checks it at review. If you override the handler, do not forget the columns. Anything you copied onto your own <code>User</code> row is yours to redact.</p></section><section id="middleware"><h2>Middleware</h2><div class="table-wrap"><table><thead><tr><th>Alias</th><th>Use</th></tr></thead><tbody><tr><td><code>shopifyIntegration.embedded</code></td><td>Page loads inside the admin iframe. Accepts an <code>id_token</code> or a valid <code>shop</code> param, token-exchanges if needed, and sets the framing headers the admin requires</td></tr><tr><td><code>shopifyIntegration.session</code></td><td>API requests carrying a session token. Verifies the JWT, resolves the store, token-exchanges if needed</td></tr><tr><td><code>shopifyIntegration.installed</code></td><td>Standalone routes needing a working store. Sends the merchant back through OAuth when the token is gone <em>or</em> the app now asks for scopes that token never had</td></tr><tr><td><code>shopifyIntegration.hmac</code></td><td>Verifies query-string HMAC on OAuth entry points</td></tr></tbody></table></div><p>The webhook route verifies its own HMAC against the raw body inside the controller rather than through an alias — middleware ordering is not something a consuming app should be able to get wrong on that route.</p><pre><code class="language-php">Route::middleware(&#x27;shopifyIntegration.embedded&#x27;)-&gt;group(function () {
-    Route::get(&#x27;/shopify/app&#x27;, fn () =&gt; view(&#x27;shopify&#x27;));
-});
+}</code></pre><p>A single <code>products/update</code> body runs to ~110KB, so a job that re-fetches the resource anyway should carry only the id. The GDPR topics need the full payload, which is why keeping it is the default.</p><p>Webhook <strong>registration</strong> with Shopify is not built yet — declare your topics in <code>shopify.app.toml</code>:</p><pre><code class="language-toml">[webhooks]
+api_version = &quot;2025-07&quot;
 
-Route::middleware(&#x27;shopifyIntegration.session&#x27;)-&gt;group(function () {
-    Route::get(&#x27;/api/products&#x27;, [ProductController::class, &#x27;index&#x27;]);
-});</code></pre><p>These middleware set <code>ShopifyIntegration::currentStore()</code>. They do <strong>not</strong> touch <code>Auth::user()</code> — if you want a Laravel user resolved from the store, stack your own middleware after <code>shopifyIntegration.session</code>:</p><pre><code class="language-php">class AuthenticateStoreOwner
-{
-    public function handle($request, Closure $next)
-    {
-        if ($user = ShopifyIntegration::currentStore()?-&gt;user) {
-            Auth::setUser($user);
-        }
-
-        return $next($request);
-    }
-}</code></pre><p>That is four lines in your app, and it keeps the package free of any guard configuration.</p></section><section id="working-with-the-current-store"><h2>Working with the current store</h2><pre><code class="language-php">ShopifyIntegration::currentStore();     // Integration|null
-ShopifyIntegration::currentStore()-&gt;api()-&gt;graphql($query);</code></pre><p>To act as a specific store — in a command, a job, an admin tool:</p><pre><code class="language-php">ShopifyIntegration::asStore($store, function () {
-    // ShopifyIntegration::currentStore() is $store for the duration of this closure,
-    // then restored. Nested calls are safe.
-});</code></pre><p>This is the guard rail that stops a queued job leaking one merchant&#x27;s data into another&#x27;s account.</p></section><section id="queued-jobs"><h2>Queued jobs</h2><pre><code class="language-php">class ImportCatalog implements ShouldQueue
-{
-    public function __construct(public Integration $store) {}
-
-    public function handle(): void
-    {
-        $this-&gt;store-&gt;api()-&gt;paginate(&#x27;products&#x27;);
-    }
-}</code></pre></section><section id="artisan-commands"><h2>Artisan commands</h2><div class="note"><p><span class="note-label">Not built yet.</span> The intended surface:</p></div><pre><code class="language-bash">php artisan shopifyIntegration:stores                      # list stores and token status
-php artisan shopifyIntegration:stores --expiring           # tokens expiring within the hour
-php artisan shopifyIntegration:token acme.myshopify.com    # force a token refresh
-php artisan shopifyIntegration:migrate-tokens              # permanent tokens → expiring
-php artisan shopifyIntegration:webhooks:sync               # reconcile webhooks with Shopify
-php artisan shopifyIntegration:webhooks:list --store=acme.myshopify.com
-php artisan shopifyIntegration:uninstall acme.myshopify.com    # mark uninstalled locally</code></pre></section><section id="testing"><h2>Testing</h2><p>The package mints valid session tokens and webhook signatures so you never hand-roll a JWT or an HMAC in a test:</p><pre><code class="language-php">$this-&gt;withHeaders(ShopifyIntegration::sessionTokenHeaders($store))
+  [[webhooks.subscriptions]]
+  topics = [ &quot;app/uninstalled&quot;, &quot;shop/update&quot; ]
+  uri = &quot;https://your-app.com/shopify/webhooks&quot;</code></pre></section><section id="what-you-can-change"><h2>What you can change</h2><p>Everything here is meant to be overridden from your app.</p><div class="table-wrap"><table><thead><tr><th>To change</th><th>Do this</th></tr></thead><tbody><tr><td>Where a merchant lands after install</td><td><code>redirects.after_install</code> — route name, URL, or closure receiving the <code>InstallContext</code></td></tr><tr><td>What happens on install</td><td>Listen for <code>StoreInstalled</code> / <code>StoreReinstalled</code></td></tr><tr><td>Add relations to a store</td><td>Subclass <code>Integration</code>, point <code>config.model</code> at it</td></tr><tr><td>Handle a new webhook topic</td><td>Add <code>topic =&gt; YourJob::class</code> to <code>webhooks.topics</code></td></tr><tr><td>Replace a shipped webhook handler</td><td>Point that topic at your own job class</td></tr><tr><td>What travels the queue for a topic</td><td>Override <code>payloadForQueue()</code> on your job</td></tr><tr><td>Register the routes yourself</td><td><code>routes.enabled = false</code></td></tr><tr><td>Change the URL prefix</td><td><code>routes.prefix</code></td></tr><tr><td>Add middleware to the OAuth routes</td><td><code>routes.middleware</code></td></tr><tr><td>Where an unknown visitor goes</td><td><code>oauth.listing_url</code></td></tr></tbody></table></div><p>The package deliberately has <strong>no</strong> opinion about users, guards, sessions, billing or onboarding. If you need one of those, listen for an event.</p></section><section id="testing"><h2>Testing</h2><p>The package mints valid session tokens and webhook signatures so you never hand-roll a JWT or an HMAC:</p><pre><code class="language-php">$this-&gt;withHeaders(ShopifyIntegration::sessionTokenHeaders($store))
      -&gt;getJson(&#x27;/api/products&#x27;)
-     -&gt;assertOk();
-
-$this-&gt;call(&#x27;POST&#x27;, &#x27;/shopify/webhooks&#x27;, [], [], [], $server, json_encode($payload));
-// with $server built from:
-ShopifyIntegration::webhookHeaders(&#x27;products/update&#x27;, $store, $payload);</code></pre><p>Both helpers are checked against the package&#x27;s own verification in its test suite. A helper that drifted from the receiver would be worse than none at all: every consuming app&#x27;s webhook tests would pass against a signature Shopify&#x27;s real deliveries do not match.</p><p>Session token claims can be overridden to test your own edge cases:</p><pre><code class="language-php">ShopifyIntegration::sessionTokenHeaders($store, [&#x27;exp&#x27; =&gt; time() - 60]);   // expired
-ShopifyIntegration::sessionTokenHeaders($store, [&#x27;aud&#x27; =&gt; &#x27;another-app&#x27;]); // wrong app</code></pre><div class="note"><p><span class="note-label">Not built yet.</span> <code>ShopifyIntegration::fake()</code>, the GraphQL assertions and model factories are planned. Use <code>Http::fake()</code> against <code>https://{shop}/admin/api/*</code> in the meantime — that is what this package&#x27;s own tests do.</p></div><pre><code class="language-php">ShopifyIntegration::fake([
-    &#x27;products&#x27; =&gt; [&#x27;data&#x27; =&gt; [&#x27;products&#x27; =&gt; [&#x27;edges&#x27; =&gt; []]]],
-]);
-
-ShopifyIntegration::assertGraphQLSent(fn ($query) =&gt; str_contains($query, &#x27;products&#x27;));</code></pre></section><section id="adopting-it-in-an-existing-app"><h2>Adopting it in an existing app</h2><p>Because the column names are fixed, an app with an existing <code>integrations</code> table needs a one-time backfill. It is a copy, not a move — your old columns stay where they are until you choose to drop them, so every step is reversible and separately deployable.</p><ol><li><p><strong>Publish and migrate.</strong> The additive migration adds the <code>integration_*</code> columns alongside your existing ones. Nothing reads them yet.</p></li><li><p><strong>Backfill.</strong> One migration per app, because only you know which of your columns held what:</p><pre><code class="language-php">// shopGPT-app: domain = custom, url = myshopify host
-DB::table(&#x27;integrations&#x27;)-&gt;where(&#x27;type&#x27;, &#x27;shopify&#x27;)-&gt;update([
-    &#x27;integration_platform&#x27;         =&gt; &#x27;shopify&#x27;,
-    &#x27;integration_external_id&#x27;      =&gt; DB::raw(&#x27;integration_id&#x27;),
-    &#x27;integration_store_domain&#x27;     =&gt; DB::raw(&#x27;url&#x27;),
-    &#x27;integration_domain&#x27;           =&gt; DB::raw(&#x27;domain&#x27;),
-    &#x27;integration_access_token&#x27;     =&gt; DB::raw(&#x27;token&#x27;),
-    &#x27;integration_refresh_token&#x27;    =&gt; DB::raw(&#x27;refresh_token&#x27;),
-    &#x27;integration_token_expires_at&#x27; =&gt; DB::raw(&#x27;token_expires_at&#x27;),
-    &#x27;integration_scopes&#x27;           =&gt; DB::raw(&#x27;scope&#x27;),
-    &#x27;integration_uninstalled_at&#x27;   =&gt; DB::raw(&#x27;CASE WHEN status = 1 THEN NULL ELSE NOW() END&#x27;),
-]);</code></pre><p><strong><code>atelier</code> is the trap:</strong> its <code>domain</code> column holds the <code>.myshopify.com</code> host, where shopGPT-app puts the custom domain. Map atelier&#x27;s <code>domain</code> to <code>integration_store_domain</code>, not <code>integration_domain</code>, or every API call after cutover targets the wrong host.</p><p>Tokens are encrypted with your app key in both the old and new columns, so a raw SQL copy carries the ciphertext across intact.</p></li><li><p><strong>Swap the API client.</strong> Replace <code>new ShopifyServiceGraphQL($integration)</code> (or <code>ApiService::graph()</code>) with <code>$store-&gt;api()</code>. Delete the local <code>TokenService</code> — the package refreshes on every call already.</p></li><li><p><strong>Move the webhook endpoint.</strong> Point the config topics at your existing jobs and drop the hand-rolled <code>verifyWebhook()</code> and topic <code>match</code>. Keep the old route as an alias until Shopify&#x27;s registrations have rolled over.</p></li><li><p><strong>Move authentication last.</strong> Replace <code>VerifyShopify</code> / <code>ApiAuth</code> with <code>shopifyIntegration.embedded</code> and <code>shopifyIntegration.session</code>, and move the user creation from your OAuth callback into a <code>StoreInstalled</code> listener. Then delete the controller and point the Partner dashboard at <code>/shopify/auth/begin</code>.</p></li><li><strong>Drop the old columns</strong>, once a release has passed with no reads from them.</li></ol><p>Step 5 changes the URL Shopify redirects to. Keep the old callback route registered and forwarding for one release.</p><p><strong>Per app:</strong> <code>prompt-form</code> is closest to the package&#x27;s shape and should go first. <code>shopGPT-app</code> and <code>atelier</code> are standalone and only need steps 1–4 until they go embedded — and shopGPT-app&#x27;s account-choice screen stays entirely in shopGPT-app, as a listener that redirects, since the package has no opinion about it.</p></section><section id="security-notes"><h2>Security notes</h2><ul><li><p><strong>Verify every session token claim.</strong> Signature, <code>exp</code>, <code>nbf</code>, <code>aud</code>, <code>iss</code>, <code>dest</code>, and that <code>iss</code> and <code>dest</code> name the same store. Checking the signature alone lets a token minted for another app — or naming another store — authenticate a request.</p></li><li><p><strong>HMAC on every OAuth entry point</strong>, and a missing <code>hmac</code> parameter is a rejection, not a skip. Webhooks verify against the raw request body, not the parsed array, because re-encoding changes the bytes.</p></li><li><p><strong>OAuth state in the cache, not the session</strong>, keyed by store and compared with <code>hash_equals</code>. Session state silently breaks inside the admin iframe.</p></li><li><p><strong>Tokens encrypted at rest</strong> and hidden from <code>toArray()</code> and <code>toJson()</code>, so they cannot leak through an API resource.</p></li><li><p><strong>Store domain validation.</strong> Only hostnames matching <code>^[a-zA-Z0-9][a-zA-Z0-9\-]*\.myshopify\.com$</code> are accepted, which closes the redirect-to-attacker hole in a naive <code>shop</code> parameter.</p></li></ul><p>Two the package cannot enforce, because they happen in your listener:</p><ul><li><p><strong>Regenerate the session before <code>Auth::login()</code></strong>, or you have a session-fixation hole.</p></li><li><p><strong>Never reassign a returning store to the currently logged-in user.</strong> Keep the <code>user_id</code> that is already on the row.</p></li></ul></section><section id="roadmap"><h2>Roadmap</h2><p>Deliberately out of scope for <code>1.0</code>, in rough order:</p><ul><li><p><strong>Managed billing</strong> — recurring subscriptions, <code>app_subscriptions/update</code> handling. All three apps have working implementations to donate; they differ enough to need their own design pass.</p></li><li><strong>Bulk operations</strong> — the bulk query/mutation lifecycle with polling.</li><li><strong>Metafields and metaobjects</strong> helpers.</li><li><p><strong>Other platforms</strong> — the <code>integration_platform</code> column is already shaped for Ecwid, BigCommerce and WooCommerce, which <code>shopGPT-app</code> also carries.</p></li></ul></section><section id="versioning"><h2>Versioning</h2><p>Semantic versioning. Anything under <code>ShopGPT\ShopifyIntegration\Internal</code> is not covered by the compatibility promise.</p></section>
+     -&gt;assertOk();</code></pre><p>Override claims to test your own edge cases:</p><pre><code class="language-php">ShopifyIntegration::sessionTokenHeaders($store, [&#x27;exp&#x27; =&gt; time() - 60]);
+ShopifyIntegration::sessionTokenHeaders($store, [&#x27;aud&#x27; =&gt; &#x27;another-app&#x27;]);</code></pre><p>For webhooks:</p><pre><code class="language-php">ShopifyIntegration::webhookHeaders(&#x27;products/update&#x27;, $store, $payload);</code></pre><p>Both are checked against the package&#x27;s own verification in its test suite.</p><p>Fake Shopify itself with <code>Http::fake()</code> against <code>https://{shop}/admin/api/*</code>. <code>ShopifyIntegration::fake()</code> and model factories are planned.</p></section><section id="security"><h2>Security</h2><ul><li><p><strong>Never enable <code>oauth.skip_hmac_in_debug</code> in production.</strong> It lets anyone install any store against your app. It is guarded to require <code>APP_DEBUG</code> too, but do not rely on that.</p></li><li><p><strong>Keep <code>oauth.state_store</code> on <code>cache</code></strong> if there is any chance the app runs embedded. Sessions do not survive the admin iframe.</p></li><li><p><strong>Tokens are encrypted with your <code>APP_KEY</code>.</strong> Rotating it without re-encrypting makes every stored token unreadable. Reads fall back to the raw value, so a table holding plaintext tokens keeps working and is encrypted on next write.</p></li><li><p><strong><code>shop/redact</code> clears the PII columns and <code>integration_shop_data</code>.</strong> Anything you copied onto your own tables is yours to redact.</p></li></ul></section><section id="versioning"><h2>Versioning</h2><p>Semver. <code>0.x</code> while the API settles — require it as <code>^0.1</code>.</p><p>Repo: <code>github.com/ghazniali95/shopify-integration</code> · Composer: <code>shopgpt/shopify-integration</code> (the vendor prefix does not have to match the GitHub account; Packagist reads the name from <code>composer.json</code>).</p></section>
 </main>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>

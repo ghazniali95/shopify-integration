@@ -5,10 +5,14 @@ namespace ShopGPT\ShopifyIntegration;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use ShopGPT\ShopifyIntegration\Http\Middleware\EnsureEmbedded;
 use ShopGPT\ShopifyIntegration\Http\Middleware\EnsureStoreInstalled;
+use ShopGPT\ShopifyIntegration\Http\Middleware\VerifySessionToken;
 use ShopGPT\ShopifyIntegration\Http\Middleware\VerifyShopifyHmac;
 use ShopGPT\ShopifyIntegration\Services\OAuthService;
+use ShopGPT\ShopifyIntegration\Services\SessionTokenService;
 use ShopGPT\ShopifyIntegration\Services\StoreWriter;
+use ShopGPT\ShopifyIntegration\Services\TokenExchangeService;
 use ShopGPT\ShopifyIntegration\Services\TokenService;
 
 class ShopifyIntegrationServiceProvider extends ServiceProvider
@@ -20,6 +24,8 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
         $this->app->singleton(OAuthService::class);
         $this->app->singleton(TokenService::class);
         $this->app->singleton(StoreWriter::class);
+        $this->app->singleton(SessionTokenService::class);
+        $this->app->singleton(TokenExchangeService::class);
         $this->app->singleton(ShopifyIntegrationManager::class);
     }
 
@@ -37,6 +43,8 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
         $router = $this->app['router'];
         $router->aliasMiddleware('shopifyIntegration.hmac', VerifyShopifyHmac::class);
         $router->aliasMiddleware('shopifyIntegration.installed', EnsureStoreInstalled::class);
+        $router->aliasMiddleware('shopifyIntegration.embedded', EnsureEmbedded::class);
+        $router->aliasMiddleware('shopifyIntegration.session', VerifySessionToken::class);
 
         $this->registerRoutes();
     }

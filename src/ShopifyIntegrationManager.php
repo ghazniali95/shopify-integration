@@ -4,6 +4,8 @@ namespace ShopGPT\ShopifyIntegration;
 
 use ShopGPT\ShopifyIntegration\Models\Integration;
 use ShopGPT\ShopifyIntegration\Services\OAuthService;
+use ShopGPT\ShopifyIntegration\Services\SessionTokenService;
+use ShopGPT\ShopifyIntegration\Services\TokenExchangeService;
 use ShopGPT\ShopifyIntegration\Services\TokenService;
 
 class ShopifyIntegrationManager
@@ -13,6 +15,8 @@ class ShopifyIntegrationManager
     public function __construct(
         private readonly OAuthService $oauth,
         private readonly TokenService $tokens,
+        private readonly SessionTokenService $sessions,
+        private readonly TokenExchangeService $exchange,
     ) {
     }
 
@@ -58,6 +62,66 @@ class ShopifyIntegrationManager
     public function refreshToken(Integration $store): Integration
     {
         return $this->tokens->refresh($store);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Embedded
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Verify an App Bridge session token, returning its claims or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function verifySessionToken(?string $jwt): ?array
+    {
+        return $this->sessions->verify($jwt);
+    }
+
+    /** The store domain a verified claims array speaks for. */
+    public function storeFromClaims(?array $claims): ?string
+    {
+        return $this->sessions->shopFromClaims($claims);
+    }
+
+    /** Trade a verified session token for a stored access token. */
+    public function exchangeToken(string $shop, string $sessionToken): ?Integration
+    {
+        return $this->exchange->exchange($shop, $sessionToken);
+    }
+
+    /**
+     * Headers an authenticated request from the admin iframe would carry —
+     * for your own tests, so an embedded route can be exercised end to end.
+     */
+    public function sessionTokenHeaders(Integration|string $store, array $claims = []): array
+    {
+        return $this->sessions->headersFor($store, $claims);
+    }
+
+    /**
+     * Headers a genuine Shopify webhook delivery would carry, signed with your
+     * client secret — test support, so an app testing its own webhook handlers
+     * never hand-rolls an HMAC.
+     */
+    public function webhookHeaders(string $topic, Integration|string $store, array|string $payload = []): array
+    {
+        $shop = $store instanceof Integration ? (string) $store->store_domain : $store;
+        $body = is_string($payload) ? $payload : (string) json_encode($payload);
+
+        return [
+            'X-Shopify-Topic'                 => $topic,
+            'X-Shopify-Shop-Domain'           => $shop,
+            'X-Shopify-Webhook-Id'            => (string) \Illuminate\Support\Str::uuid(),
+            'X-Shopify-API-Version'           => (string) config('shopifyIntegration.api_version'),
+            // Signed over the raw body, exactly as the receiver verifies it —
+            // re-encoding the payload anywhere in between changes the digest.
+            'X-Shopify-Hmac-Sha256'           => base64_encode(hash_hmac(
+                'sha256', $body, (string) config('shopifyIntegration.client_secret'), true
+            )),
+        ];
     }
 
     /** The install URL for a store, for a "connect your store" button. */

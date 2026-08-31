@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Facade;
  * @method static \ShopGPT\ShopifyIntegration\Models\Integration|null forDomain(string $domain)
  * @method static \ShopGPT\ShopifyIntegration\Models\Integration ensureFreshToken(\ShopGPT\ShopifyIntegration\Models\Integration $store)
  * @method static \ShopGPT\ShopifyIntegration\Models\Integration refreshToken(\ShopGPT\ShopifyIntegration\Models\Integration $store)
+ * @method static array|null verifySessionToken(?string $jwt)
+ * @method static string|null storeFromClaims(?array $claims)
+ * @method static \ShopGPT\ShopifyIntegration\Models\Integration|null exchangeToken(string $shop, string $sessionToken)
+ * @method static array sessionTokenHeaders(\ShopGPT\ShopifyIntegration\Models\Integration|string $store, array $claims = [])
+ * @method static array webhookHeaders(string $topic, \ShopGPT\ShopifyIntegration\Models\Integration|string $store, array|string $payload = [])
  * @method static string installUrl(string $shop)
  * @method static string redirectUri()
  *

@@ -189,4 +189,32 @@ class WebhookTest extends TestCase
         // No session, no CSRF token — a signed POST from Shopify must pass.
         $this->sendWebhook('app/uninstalled', ['id' => 1])->assertOk();
     }
+
+    /**
+     * The helper an app uses to test its own webhook handlers. If it and the
+     * receiver ever disagree about how the signature is built, every consuming
+     * app's webhook tests go green against a receiver that would reject the
+     * real thing — so they are checked against each other here.
+     */
+    #[Test]
+    public function the_webhook_header_helper_produces_a_delivery_the_receiver_accepts(): void
+    {
+        Bus::fake();
+        $store = $this->store();
+
+        $payload = ['id' => 42, 'domain' => self::SHOP];
+        $body    = json_encode($payload);
+
+        $this->call(
+            'POST',
+            '/shopify/webhooks',
+            [], [], [],
+            $this->headers(\ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration::webhookHeaders(
+                'app/uninstalled', $store, $payload
+            )),
+            $body,
+        )->assertOk();
+
+        Bus::assertDispatched(HandleAppUninstalled::class);
+    }
 }

@@ -22,6 +22,7 @@ Cashier billing and user accounts, and an app with no user table at all.
 
 ## Contents
 
+- [Build status](#build-status)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Which mode do you need?](#which-mode-do-you-need)
@@ -43,6 +44,31 @@ Cashier billing and user accounts, and an app with no user table at all.
 - [Adopting it in an existing app](#adopting-it-in-an-existing-app)
 - [Security notes](#security-notes)
 - [Roadmap](#roadmap)
+
+---
+
+## Build status
+
+Everything documented below is designed; not all of it is written yet. This
+table is the honest state of the code, kept current as pieces land.
+
+| Area | State |
+| --- | --- |
+| OAuth install / callback, HMAC, cache-backed state | **Built** |
+| Expiring offline tokens, refresh, encryption at rest | **Built** |
+| The `integrations` table and additive migration | **Built** |
+| Session token verification, token exchange, embedded middleware | **Built** |
+| Webhook receipt, GDPR topics, dedupe, `app/uninstalled` | **Built** |
+| API client — GraphQL, REST verbs, error classification, GraphQL throttling | **Built** |
+| Events, exceptions, facade, `asStore()` | **Built** |
+| Webhook *registration* with Shopify (`webhooks:sync`) | Planned |
+| Artisan commands | Planned |
+| `$api->paginate()`, REST call-limit headers | Planned |
+| `ShopifyIntegration::fake()` | Planned |
+
+116 tests, 267 assertions, green on Laravel 10.50, 11.56 and 12.68.
+
+Sections describing planned work are marked inline.
 
 ---
 
@@ -836,10 +862,27 @@ This is why a modern embedded app can skip the OAuth redirect entirely on
 install. It is also the recovery path: if a token is revoked, the next request
 quietly re-obtains one instead of bouncing the merchant out of the admin.
 
-### The front end
+### What `shopifyIntegration.session` answers with
 
-Handle the two failure modes distinctly — an expired token is retryable, a
-missing install is not.
+The two failure modes get different statuses because the front end can only
+recover from one of them on its own.
+
+| Status | Body | What the client should do |
+| --- | --- | --- |
+| `401` | `{"error": "session_token_missing"}` | Attach a token |
+| `401` | `{"error": "session_token_invalid"}` | Mint a fresh token, retry **once** |
+| `403` | `{"error": "reauthorization_required", "url": "…"}` | Break out of the frame to `url` |
+
+Session tokens live about a minute, so a `401` is routine rather than hostile —
+a tab left open over lunch produces one. A `403` means the token was perfectly
+good but the app has no usable install behind it, and no amount of retrying
+will change that.
+
+Collapsing both into `401` is what produces the retry loop embedded apps are
+notorious for: the client cheerfully mints valid token after valid token for a
+store that was uninstalled last week.
+
+### The front end
 
 ```js
 import { useAppBridge } from '@shopify/app-bridge-react';
@@ -852,19 +895,18 @@ instance.interceptors.request.use(async (config) => {
 });
 
 instance.interceptors.response.use(null, async (error) => {
-    const status = error.response?.status;
+    const { status, data } = error.response ?? {};
 
-    // Stale token — mint a fresh one and retry exactly once
-    if ((status === 400 || status === 403) && !error.config._retried) {
+    // Stale token — mint a fresh one and retry exactly once.
+    if (status === 401 && !error.config._retried) {
         error.config._retried = true;
         error.config.headers.Authorization = `Bearer ${await shopify.idToken()}`;
         return instance.request(error.config);
     }
 
-    // Not installed / token revoked — full-page redirect, out of the iframe
-    if (status === 401) {
-        const shop = new URLSearchParams(location.search).get('shop');
-        window.top.location.href = `/shopify/auth/begin?shop=${shop}`;
+    // No usable install — full-page redirect, out of the iframe.
+    if (status === 403 && data?.error === 'reauthorization_required') {
+        window.top.location.href = data.url;
     }
 
     return Promise.reject(error);
@@ -873,6 +915,35 @@ instance.interceptors.response.use(null, async (error) => {
 
 `window.top.location` matters: redirecting `window.location` navigates the
 iframe, and Shopify's OAuth screen refuses to render framed.
+
+> **If you are porting from `prompt-form`,** its `useAuthenticatedFetch` retries
+> on 400/403 and redirects on 401 — the opposite way round. That was a
+> consequence of its own `ApiAuth` returning 401 when it could not resolve a
+> user. This package follows the HTTP meanings instead: 401 is *not
+> authenticated*, 403 is *authenticated but there is nothing to act on*.
+
+### Framing and the exit-iframe redirect
+
+`shopifyIntegration.embedded` sets the header Shopify requires on every page it
+lets through, naming the merchant's own admin as the only permitted framers:
+
+```
+Content-Security-Policy: frame-ancestors https://{shop} https://admin.shopify.com;
+```
+
+It also strips `X-Frame-Options`. Laravel sends none by default, but a security
+package or a reverse proxy often adds one globally — and the symptom is an app
+that renders as a blank rectangle inside the admin with nothing in the response
+to explain why.
+
+When the store needs OAuth, the middleware cannot simply return a `302`:
+Shopify's authorize page refuses to be framed, so the redirect would resolve
+inside the iframe and paint an empty box. It returns a minimal HTML page that
+moves `window.top` instead — dependency-free, because the case where the app
+is not installed is exactly the case where booting your bundle is pointless.
+
+A request that was never framed (no `host`, no `embedded=1`) gets an ordinary
+redirect.
 
 ### shopify.app.toml
 
@@ -977,6 +1048,9 @@ $api->rest()->post('products.json', ['product' => [...]]);
 
 ### Pagination
 
+> **Not built yet.** `$api->paginate()` is planned; cursor loops are yours to
+> write for now. The intended shape:
+
 ```php
 foreach ($api->paginate('products', ['first' => 250]) as $product) {
     // cursor pagination handled for you, one page in memory at a time
@@ -985,9 +1059,18 @@ foreach ($api->paginate('products', ['first' => 250]) as $product) {
 
 ### Rate limits
 
-GraphQL cost and REST call-limit headers are read after each response. When the
-bucket drops below 20% the client waits for it to refill rather than letting
-Shopify 429 you. Genuine 429s are retried with backoff.
+The GraphQL leaky bucket is read from `extensions.cost.throttleStatus` after
+each response. When it drops below 20% the client sleeps just long enough for
+the bucket to refill — capped at 5 seconds, so a badly throttled store slows a
+worker down instead of hanging a web request.
+
+A genuine `429` throws `RateLimitedException` carrying `retryAfter`, taken from
+Shopify's `Retry-After` header. It is left for the caller to handle: only your
+code knows whether this work should be retried inline or released back to the
+queue.
+
+> **Not built yet.** REST call-limit headers (`X-Shopify-Shop-Api-Call-Limit`)
+> are not read; only the GraphQL bucket is.
 
 ### When the app has been uninstalled
 
@@ -1003,6 +1086,22 @@ try {
     $e->store;   // already flagged uninstalled
 }
 ```
+
+### Not every failure is an uninstall
+
+A `402` (unpaid) and a `423` (locked) are easy to lump in with `401`, and doing
+so is destructive: the store is flagged uninstalled, `StoreUninstalled`
+listeners run, and a merchant whose card simply bounced comes back to an app
+that has deleted their data. These throw `StoreUnavailableException` and leave
+the install alone.
+
+| Status | Exception | Store flagged uninstalled |
+| --- | --- | --- |
+| 401 | `StoreUninstalledException` | Yes — the token is gone for good |
+| 402 | `StoreUnavailableException` (`isFrozen()`) | No — unpaid, comes back |
+| 423 | `StoreUnavailableException` (`isLocked()`) | No — locked by Shopify |
+| 429 | `RateLimitedException` (`$e->retryAfter`) | No |
+| other | `ShopifyApiException` | No |
 
 ---
 
@@ -1049,10 +1148,23 @@ class SyncShopifyProduct extends WebhookJob
 }
 ```
 
-`WebhookJob` carries only the store id, topic and resource id across the queue
-— not the raw body. A single `products/update` payload runs to ~110KB, and a
-busy store repeats it every few seconds; keeping it off Redis is the difference
-between a healthy queue and a full one.
+`WebhookJob` carries the whole payload across the queue by default, because
+the GDPR topics genuinely need it — `customers/redact` names the customer to
+erase, and a job that dropped the body would have nothing to act on.
+
+Trim it per topic by overriding `payloadForQueue()`:
+
+```php
+protected function payloadForQueue(array $payload): array
+{
+    return ['id' => $payload['id']];
+}
+```
+
+Do that for anything high-volume. A single `products/update` body runs to
+~110KB and a busy store repeats it every few seconds, so a job that re-fetches
+the resource anyway should carry only the id. The default errs towards keeping
+data a handler might need; the override is how you keep Redis healthy.
 
 Bodies are never logged. Each webhook logs topic, store domain, resource id and
 payload size.
@@ -1075,10 +1187,14 @@ row is yours to redact.
 
 | Alias | Use |
 | --- | --- |
-| `shopifyIntegration.embedded` | Page loads inside the admin iframe. Accepts a session token or a valid `shop` param; otherwise redirects to `/shopify/auth/begin` |
+| `shopifyIntegration.embedded` | Page loads inside the admin iframe. Accepts an `id_token` or a valid `shop` param, token-exchanges if needed, and sets the framing headers the admin requires |
 | `shopifyIntegration.session` | API requests carrying a session token. Verifies the JWT, resolves the store, token-exchanges if needed |
+| `shopifyIntegration.installed` | Standalone routes needing a working store. Sends the merchant back through OAuth when the token is gone *or* the app now asks for scopes that token never had |
 | `shopifyIntegration.hmac` | Verifies query-string HMAC on OAuth entry points |
-| `shopifyIntegration.webhook` | Verifies webhook HMAC against the raw body |
+
+The webhook route verifies its own HMAC against the raw body inside the
+controller rather than through an alias — middleware ordering is not something
+a consuming app should be able to get wrong on that route.
 
 ```php
 Route::middleware('shopifyIntegration.embedded')->group(function () {
@@ -1152,6 +1268,8 @@ class ImportCatalog implements ShouldQueue
 
 ## Artisan commands
 
+> **Not built yet.** The intended surface:
+
 ```bash
 php artisan shopifyIntegration:stores                      # list stores and token status
 php artisan shopifyIntegration:stores --expiring           # tokens expiring within the hour
@@ -1166,33 +1284,42 @@ php artisan shopifyIntegration:uninstall acme.myshopify.com    # mark uninstalle
 
 ## Testing
 
-```php
-ShopifyIntegration::fake([
-    'products' => ['data' => ['products' => ['edges' => []]]],
-]);
-
-ShopifyIntegration::assertGraphQLSent(fn ($query) => str_contains($query, 'products'));
-ShopifyIntegration::assertWebhookRegistered('products/update');
-```
-
-```php
-$store = Integration::factory()->create();
-$store = Integration::factory()->uninstalled()->create();
-$store = Integration::factory()->withExpiredToken()->create();
-$store = Integration::factory()->withLegacyPermanentToken()->create();
-```
-
 The package mints valid session tokens and webhook signatures so you never
-hand-roll a JWT in a test:
+hand-roll a JWT or an HMAC in a test:
 
 ```php
 $this->withHeaders(ShopifyIntegration::sessionTokenHeaders($store))
      ->getJson('/api/products')
      ->assertOk();
 
-$this->postJson('/shopify/webhooks', $payload,
-        ShopifyIntegration::webhookHeaders('products/update', $store, $payload))
-     ->assertOk();
+$this->call('POST', '/shopify/webhooks', [], [], [], $server, json_encode($payload));
+// with $server built from:
+ShopifyIntegration::webhookHeaders('products/update', $store, $payload);
+```
+
+Both helpers are checked against the package's own verification in its test
+suite. A helper that drifted from the receiver would be worse than none at all:
+every consuming app's webhook tests would pass against a signature Shopify's
+real deliveries do not match.
+
+Session token claims can be overridden to test your own edge cases:
+
+```php
+ShopifyIntegration::sessionTokenHeaders($store, ['exp' => time() - 60]);   // expired
+ShopifyIntegration::sessionTokenHeaders($store, ['aud' => 'another-app']); // wrong app
+```
+
+> **Not built yet.** `ShopifyIntegration::fake()`, the GraphQL assertions and
+> model factories are planned. Use `Http::fake()` against
+> `https://{shop}/admin/api/*` in the meantime — that is what this package's own
+> tests do.
+
+```php
+ShopifyIntegration::fake([
+    'products' => ['data' => ['products' => ['edges' => []]]],
+]);
+
+ShopifyIntegration::assertGraphQLSent(fn ($query) => str_contains($query, 'products'));
 ```
 
 ---

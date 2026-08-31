@@ -32,9 +32,9 @@ abstract class WebhookJob implements ShouldQueue
      * Trim the payload before it goes onto the queue.
      *
      * The default keeps everything, which is what GDPR topics need. Override
-     * it for anything high-volume: a single products/update body runs to
-     * ~110KB and a busy store repeats it every few seconds, so a job that
-     * re-fetches the resource anyway should carry only the id.
+     * it for anything high-volume: a large resource body runs to ~110KB and a
+     * busy store can repeat it every few seconds, so a job that re-fetches the
+     * resource anyway should carry only the id.
      *
      *     protected static function payloadForQueue(array $payload): array
      *     {

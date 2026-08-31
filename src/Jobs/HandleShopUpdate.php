@@ -2,6 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Jobs;
 
+use ShopGPT\ShopifyIntegration\Events\StoreProfileUpdated;
 use ShopGPT\ShopifyIntegration\Services\StoreWriter;
 
 /**
@@ -21,6 +22,28 @@ class HandleShopUpdate extends WebhookJob
             return;
         }
 
-        $store->forceFill($writer->profileFrom($this->payload))->saveQuietly();
+        $previousPlan = $store->plan_name;
+
+        $profile = $writer->profileFrom($this->payload);
+
+        $store->forceFill($profile)->saveQuietly();
+
+        StoreProfileUpdated::dispatch(
+            $store,
+            $this->changedFrom($profile),
+            $previousPlan,
+        );
+    }
+
+    /**
+     * Which of the promoted columns this webhook actually carried a value
+     * for. shop/update fires for changes the app does not care about, so a
+     * listener needs to know what moved rather than re-diffing the row.
+     */
+    private function changedFrom(array $profile): array
+    {
+        unset($profile['integration_shop_data'], $profile['integration_shop_data_synced_at']);
+
+        return array_keys(array_filter($profile, fn ($value) => $value !== null));
     }
 }

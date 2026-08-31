@@ -2,6 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Services;
 
+use ShopGPT\ShopifyIntegration\Events\StoreRenamed;
 use ShopGPT\ShopifyIntegration\Models\Integration;
 
 /**
@@ -25,6 +26,11 @@ class StoreWriter
         // A row that exists but was uninstalled is a reinstall, not a new
         // install — the distinction decides whether onboarding runs again.
         $isReinstall = ! $isNewInstall && ! $store->isInstalled();
+
+        // Captured before the write: the row is matched on the Shopify shop
+        // id, so a renamed store is followed rather than duplicated — and
+        // without this the old domain would be gone with nothing announcing it.
+        $previousDomain = $store?->store_domain;
 
         $store ??= Integration::query()->make();
 
@@ -55,6 +61,10 @@ class StoreWriter
         }
 
         $store->forceFill($attributes)->save();
+
+        if ($previousDomain !== null && $previousDomain !== $shop) {
+            StoreRenamed::dispatch($store, $previousDomain, $shop);
+        }
 
         return [$store, $isNewInstall, $isReinstall];
     }

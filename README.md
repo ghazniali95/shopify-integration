@@ -52,7 +52,7 @@ and gets out of the way.
 | `$api->paginate()`, REST call-limit headers | Planned |
 | `ShopifyIntegration::fake()`, model factories | Planned |
 
-119 tests, 276 assertions, green on Laravel 10.50, 11.56 and 12.68.
+135 tests, 298 assertions, green on Laravel 10.50, 11.56 and 12.68.
 
 ---
 
@@ -60,7 +60,7 @@ and gets out of the way.
 
 | Package | PHP | Laravel |
 | --- | --- | --- |
-| `0.2.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
+| `0.3.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
 
 Requires a cache store (OAuth state) and a queue worker (webhook handling).
 Any driver works.
@@ -512,7 +512,27 @@ these.
 | `StoreReinstalled` | A previously uninstalled store came back | `$store`, `$context` |
 | `StoreTokenExchanged` | An access token came from a session token | `$store` |
 | `StoreTokenRefreshed` | A token was refreshed | `$store` |
+| `TokenRefreshFailed` | A refresh failed | `$store`, `$reason`, `$fatal` |
+| `StoreScopesUpdated` | `app/scopes_update` arrived | `$store`, `$previous`, `$current` |
+| `StoreProfileUpdated` | `shop/update` refreshed the profile | `$store`, `$changed`, `$previousPlan` |
+| `StoreRenamed` | The myshopify domain changed | `$store`, `$previousDomain`, `$currentDomain` |
 | `StoreUninstalled` | The webhook or a 401 said so | `$store` |
+
+Three of them carry a helper worth knowing about:
+
+```php
+// StoreScopesUpdated — what actually moved
+$event->gained();   // ['write_products']
+$event->lost();     // ['read_orders'] — calls needing these now 403
+
+// StoreProfileUpdated — the one that matters for billing
+$event->planChanged();    // left a development plan?
+$event->previousPlan;
+
+// TokenRefreshFailed — false means the current token is still usable and
+// the next call retries; true means the merchant must re-authorise
+$event->fatal;
+```
 
 `$context` is an `InstallContext`:
 
@@ -551,6 +571,7 @@ to jobs in config:
 ```php
 'topics' => [
     'app/uninstalled'        => HandleAppUninstalled::class,
+    'app/scopes_update'      => HandleScopesUpdate::class,
     'shop/update'            => HandleShopUpdate::class,
     'shop/redact'            => HandleShopRedact::class,
     'customers/redact'       => HandleCustomersRedact::class,
@@ -561,8 +582,18 @@ to jobs in config:
 ],
 ```
 
-Those five ship with the package. The three GDPR topics are mandatory for
+Those six ship with the package. The three GDPR topics are mandatory for
 public apps and the shipped handlers are enough to pass review.
+
+**`app/scopes_update` matters more than it looks.** Under Shopify managed
+installation the merchant approves a scope change inside the admin and your
+app is never called, so without this webhook the stored scopes go stale:
+`hasRequiredScopes()` keeps reporting a shortfall the merchant has already
+fixed, and you send them back through an authorisation they do not need.
+
+> **Upgrading from 0.2?** `webhooks.topics` lives in the config you published,
+> so this topic will not appear there on its own. Add the line by hand, and
+> subscribe to the topic in `shopify.app.toml`.
 
 ### Writing a handler
 
@@ -606,7 +637,7 @@ Webhook **registration** with Shopify is not built yet — declare your topics i
 api_version = "2025-07"
 
   [[webhooks.subscriptions]]
-  topics = [ "app/uninstalled", "shop/update" ]
+  topics = [ "app/uninstalled", "app/scopes_update", "shop/update" ]
   uri = "https://your-app.com/shopify/webhooks"
 ```
 
@@ -684,7 +715,11 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Versioning
 
-Semver. `0.x` while the API settles — require it as `^0.2`.
+Semver. `0.x` while the API settles — require it as `^0.3`.
+
+`0.3.0` added the `app/scopes_update` topic and four events. Nothing breaks,
+but a config you published earlier will not have the new topic — add it by
+hand, and subscribe to it in `shopify.app.toml`.
 
 `0.2.0` renamed `oauth.skip_hmac_in_debug` to a plain top-level `debug`
 key. If you published the config before then, move the value across; the

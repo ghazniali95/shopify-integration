@@ -125,4 +125,73 @@ class TokenServiceTest extends TestCase
 
         $this->assertSame('shprt_current', $store->refresh_token);
     }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Serialisation
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Shopify replaces the refresh token on every refresh and expects the
+     * newest one to be the only one in use, so two callers racing for the
+     * same store would leave the loser storing a spent credential.
+     *
+     * The guard is the re-read inside the lock: once a refresh has landed,
+     * the next caller through takes the token that is already there instead
+     * of spending a second refresh on the same expiry.
+     */
+    #[Test]
+    public function a_second_refresh_takes_the_token_the_first_one_stored(): void
+    {
+        Http::fake([
+            '*/admin/oauth/access_token' => Http::response([
+                'access_token'  => 'shpat_refreshed',
+                'refresh_token' => 'shprt_rotated',
+                'expires_in'    => 3600,
+            ]),
+        ]);
+
+        $store = $this->store([
+            'integration_refresh_token'    => 'shprt_original',
+            'integration_token_expires_at' => now()->addSeconds(30),
+        ]);
+
+        $service = app(TokenService::class);
+
+        $service->refresh($store);
+        $service->refresh($store);
+
+        Http::assertSentCount(1);
+        $this->assertSame('shpat_refreshed', $store->fresh()->access_token);
+        $this->assertSame('shprt_rotated', $store->fresh()->refresh_token);
+    }
+
+    /** The lock must not outlive the refresh, or the store seizes up. */
+    #[Test]
+    public function the_lock_is_released_so_a_later_refresh_still_runs(): void
+    {
+        Http::fake([
+            '*/admin/oauth/access_token' => Http::response([
+                'access_token'  => 'shpat_refreshed',
+                'refresh_token' => 'shprt_rotated',
+                'expires_in'    => 3600,
+            ]),
+        ]);
+
+        $store   = $this->store([
+            'integration_refresh_token'    => 'shprt_original',
+            'integration_token_expires_at' => now()->addSeconds(30),
+        ]);
+        $service = app(TokenService::class);
+
+        $service->refresh($store);
+
+        // Expired again, as it would be an hour later.
+        $store->forceFill(['integration_token_expires_at' => now()->subMinute()])->saveQuietly();
+
+        $service->refresh($store);
+
+        Http::assertSentCount(2);
+    }
 }

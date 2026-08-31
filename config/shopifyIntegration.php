@@ -129,9 +129,14 @@ return [
          * The three GDPR topics are mandatory for public apps. The shipped
          * handlers verify, log and acknowledge, which is enough to pass
          * review; override them once you store customer data of your own.
+         *
+         * app/scopes_update is what keeps the scopes column honest under
+         * Shopify managed installation, where the merchant approves a scope
+         * change inside the admin and the app is never called.
          */
         'topics' => [
             'app/uninstalled'        => ShopGPT\ShopifyIntegration\Jobs\HandleAppUninstalled::class,
+            'app/scopes_update'      => ShopGPT\ShopifyIntegration\Jobs\HandleScopesUpdate::class,
             'shop/update'            => ShopGPT\ShopifyIntegration\Jobs\HandleShopUpdate::class,
             'shop/redact'            => ShopGPT\ShopifyIntegration\Jobs\HandleShopRedact::class,
             'customers/redact'       => ShopGPT\ShopifyIntegration\Jobs\HandleCustomersRedact::class,

@@ -538,7 +538,8 @@ to jobs in config:
     'customers/redact'       => HandleCustomersRedact::class,
     'customers/data_request' => HandleCustomersDataRequest::class,
 
-    'products/update'        => App\Jobs\SyncShopifyProduct::class,
+    // Any other topic you subscribe to, mapped to your own job:
+    // 'your/topic'          => App\Jobs\YourHandler::class,
 ],
 ```
 
@@ -552,12 +553,12 @@ Extend `WebhookJob`:
 ```php
 use ShopGPT\ShopifyIntegration\Jobs\WebhookJob;
 
-class SyncShopifyProduct extends WebhookJob
+class YourHandler extends WebhookJob
 {
     public function handle(): void
     {
         $this->store;        // Integration, resolved for you
-        $this->topic;        // 'products/update'
+        $this->topic;        // the topic this was registered under
         $this->payload;      // array
         $this->webhookId;    // X-Shopify-Webhook-Id
 
@@ -575,9 +576,9 @@ protected static function payloadForQueue(array $payload): array
 }
 ```
 
-A single `products/update` body runs to ~110KB, so a job that re-fetches the
-resource anyway should carry only the id. The GDPR topics need the full
-payload, which is why keeping it is the default.
+A busy store can repeat a large resource payload every few seconds, so a job
+that re-fetches the resource anyway should carry only the id. The GDPR topics
+need the full payload, which is why keeping it is the default.
 
 Webhook **registration** with Shopify is not built yet — declare your topics in
 `shopify.app.toml`:
@@ -636,7 +637,7 @@ ShopifyIntegration::sessionTokenHeaders($store, ['aud' => 'another-app']);
 For webhooks:
 
 ```php
-ShopifyIntegration::webhookHeaders('products/update', $store, $payload);
+ShopifyIntegration::webhookHeaders('app/uninstalled', $store, $payload);
 ```
 
 Both are checked against the package's own verification in its test suite.

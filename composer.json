@@ -1,9 +1,25 @@
 {
     "name": "shopgpt/shopify-integration",
     "description": "Multi-tenant Shopify authentication for Laravel — OAuth, expiring offline tokens, automatic refresh.",
-    "keywords": ["laravel", "shopify", "oauth", "multi-tenant"],
+    "keywords": [
+        "laravel",
+        "shopify",
+        "oauth",
+        "multi-tenant"
+    ],
     "type": "library",
     "license": "MIT",
+    "authors": [
+        {
+            "name": "Ghazni Ali",
+            "email": "ghazniali95@gmail.com"
+        }
+    ],
+    "homepage": "https://github.com/ghazniali95/shopify-integration",
+    "support": {
+        "issues": "https://github.com/ghazniali95/shopify-integration/issues",
+        "source": "https://github.com/ghazniali95/shopify-integration"
+    },
     "require": {
         "php": "^8.1",
         "illuminate/support": "^10.0|^11.0|^12.0",

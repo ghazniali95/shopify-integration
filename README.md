@@ -108,9 +108,13 @@ composer require shopgpt/shopify-integration
 >
 > | Where | Value |
 > | --- | --- |
-> | GitHub repo | `github.com/shopGPT/shopify-integration` |
+> | GitHub repo | `github.com/ghazniali95/shopify-integration` |
 > | PHP namespace | `ShopGPT\ShopifyIntegration\…` |
 > | Composer name | `shopgpt/shopify-integration` |
+>
+> The vendor prefix does not have to match the GitHub account. Packagist reads
+> the name out of `composer.json`, so `shopgpt/*` is published from a repo
+> under a personal account without either having to move.
 
 The service provider is auto-discovered. Publish the config and the migration:
 

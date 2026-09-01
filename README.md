@@ -2,10 +2,6 @@
 
 Multi-tenant Shopify authentication for Laravel apps — embedded and standalone.
 
-One Shopify app can be installed by thousands of merchants. Each install is a
-tenant: its own store domain, its own access token, its own expiry, its own
-webhooks. This package owns that lifecycle so your app does not have to.
-
 **Design rule:** the package authenticates *Shopify*. It never touches your
 users, guards or sessions. It stores the store and its tokens, fires an event,
 and gets out of the way.
@@ -38,21 +34,17 @@ and gets out of the way.
 
 ## Build status
 
-| Area | State |
-| --- | --- |
-| OAuth install / callback, HMAC, state | **Built** |
-| Expiring offline tokens, refresh, encryption at rest | **Built** |
-| The `integrations` table and additive migration | **Built** |
-| Session token verification, token exchange, embedded middleware | **Built** |
-| Webhook receipt, GDPR topics, dedupe, `app/uninstalled` | **Built** |
-| Admin API client — GraphQL, REST verbs, error classification | **Built** |
-| Events, exceptions, facade, `asStore()` | **Built** |
-| Webhook *registration* with Shopify (`webhooks:sync`) | Planned |
-| Artisan commands | Planned |
-| `$api->paginate()`, REST call-limit headers | Planned |
-| `ShopifyIntegration::fake()`, model factories | Planned |
+**Built** — OAuth install and callback (HMAC, state), expiring offline tokens
+with refresh and encryption at rest, the `integrations` table, session token
+verification and token exchange for embedded apps, webhook receipt with dedupe
+and the six shipped topics, the Admin API client (GraphQL and REST), and the
+events, exceptions and facade around all of it.
 
-135 tests, 298 assertions, green on Laravel 10.50, 11.56 and 12.68.
+**Planned** — webhook registration with Shopify (`webhooks:sync`), Artisan
+commands, `$api->paginate()` and REST call-limit headers,
+`ShopifyIntegration::fake()` and model factories.
+
+150 tests, 337 assertions, green on Laravel 10.50, 11.56 and 12.68.
 
 ---
 
@@ -60,7 +52,7 @@ and gets out of the way.
 
 | Package | PHP | Laravel |
 | --- | --- | --- |
-| `0.3.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
+| `0.4.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
 
 Requires a cache store (OAuth state) and a queue worker (webhook handling).
 Any driver works.
@@ -97,7 +89,7 @@ In your Partner dashboard set the App URL to
 
 ## Configuration
 
-Every key in `config/shopifyIntegration.php`. Ten of them read from the
+Every key in `config/shopifyIntegration.php`. Nine of them read from the
 environment; the rest are edited in the config file.
 
 | Key | Env var | Default | What it does |
@@ -108,10 +100,10 @@ environment; the rest are edited in the config file.
 | `scopes` | `SHOPIFY_SCOPES` | `write_products` | Comma-separated. Changing this forces re-auth |
 | `debug` | `SHOPIFY_DEBUG` | `false` | Skips HMAC verification on the OAuth routes. Local only |
 | `embedded.enabled` | `SHOPIFY_EMBEDDED` | `false` | Runs inside the Shopify Admin iframe |
-| `embedded.entry` | — | `/shopify/app` | Where a merchant lands after installing |
 | `model` | — | `Integration::class` | Point at your own subclass to add relations |
 | `oauth.state_store` | — | `cache` | `cache` or `session`. Keep `cache` if embedded |
 | `oauth.state_ttl` | — | `300` | Seconds a pending install stays valid |
+| `oauth.hmac_ttl` | — | `300` | Seconds a signed Shopify request stays acceptable. `0` checks the signature only |
 | `oauth.listing_url` | `SHOPIFY_LISTING_URL` | `null` | Where to send someone who hits the install URL with no `shop` |
 | `tokens.refresh_buffer` | — | `300` | Refresh this many seconds before expiry |
 | `tokens.encrypt` | — | `true` | Encrypt tokens at rest with your app key |
@@ -119,21 +111,13 @@ environment; the rest are edited in the config file.
 | `routes.prefix` | — | `shopify` | URL prefix for the package's routes |
 | `routes.middleware` | — | `['web']` | Applied to the OAuth routes |
 | `routes.webhook_middleware` | — | `['api']` | Applied to the webhook route |
-| `webhooks.topics` | — | 5 topics | Topic => job class. See [Webhooks](#webhooks) |
+| `webhooks.topics` | — | 6 topics | Topic => job class. See [Webhooks](#webhooks) |
 | `webhooks.queue` | `SHOPIFY_WEBHOOK_QUEUE` | `default` | Queue webhook jobs are pushed to |
 | `webhooks.log_channel` | `SHOPIFY_WEBHOOK_LOG` | `null` | Log channel for webhook activity |
 | `webhooks.deduplicate` | — | `true` | Drop redeliveries of a webhook id already seen |
 | `redirects.after_install` | — | `/` | Route name, URL, or closure. Ignored when embedded |
 | `redirects.after_reinstall` | — | `/` | Same, for a store that had uninstalled |
 | `redirects.on_failure` | — | `/` | Same, when OAuth fails |
-
-Booleans are read the usual Laravel way, so `SHOPIFY_EMBEDDED=true` in `.env`
-arrives as boolean `true` — quotes are neither needed nor wanted. Anything that
-is not `true` (including an unset or empty value) is false.
-
-> **After changing `.env` on a server that caches config**, run
-> `php artisan config:clear` — or `config:cache` again. A cached config file
-> has the old values baked in and will ignore the `.env` entirely.
 
 Everything without an env var is edited in `config/shopifyIntegration.php`
 directly. Add your own env keys there if you want them environment-driven:
@@ -191,7 +175,10 @@ not `$store->integration_access_token`.
 
 ## Quick start — embedded app
 
-**1.** Set `SHOPIFY_EMBEDDED=true`.
+**1.** Set `SHOPIFY_EMBEDDED=true`. A completed install then hands the browser
+back to Shopify (`admin.shopify.com/store/…/apps/…`), which loads the App URL
+from your Partner dashboard inside the admin frame — set that App URL to the
+route in step 3.
 
 **2.** Load App Bridge first in your host view:
 
@@ -289,6 +276,17 @@ Registered under `routes.prefix` (default `shopify`). Set
 | `GET` | `/shopify/auth/begin` | `shopifyIntegration.auth.begin` |
 | `GET` | `/shopify/auth/callback` | `shopifyIntegration.auth.callback` |
 | `POST` | `/shopify/webhooks` | `shopifyIntegration.webhooks` |
+
+**`begin` verifies a signature when there is one.** Shopify signs the requests
+it sends, and those are checked — wrong signature, or one older than
+`oauth.hmac_ttl`, is a 401. A merchant arriving from a "connect your store"
+button on your own site carries no signature and cannot invent one, so an
+unsigned request is admitted: this route only redirects to Shopify's own
+authorize page, where the merchant still has to log in and approve.
+
+**`callback` always requires one.** That is where the install is actually
+granted, and the signature, the single-use `state` and the code exchange all
+have to line up.
 
 ---
 
@@ -698,13 +696,22 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Security
 
-- **Never set `debug` to `true` in production.** HMAC is what proves an install
-  request came from Shopify. With it off, anyone who knows a store domain can
-  install any store against your app, and nothing about the request looks
-  wrong. Every skip is logged as a warning so a forgotten `SHOPIFY_DEBUG=true`
-  is visible in your logs.
+- **Never set `debug` to `true` in production.** It skips HMAC verification on
+  the callback, which is where the install is granted — with it off, anyone who
+  knows a store domain can write a store row and a token into your app, and
+  nothing about the request looks wrong. Every skip is logged as a warning so a
+  forgotten `SHOPIFY_DEBUG=true` is visible in your logs.
+- **A signature is checked whenever one is present, and expires.** A correct
+  HMAC stays correct forever, so `oauth.hmac_ttl` bounds how long a signed
+  Shopify URL kept in a log or a browser history is still worth anything.
 - **Keep `oauth.state_store` on `cache`** if there is any chance the app runs
-  embedded. Sessions do not survive the admin iframe.
+  embedded. Sessions do not survive the admin iframe. The nonce is single-use
+  and forms part of its own storage key, so two installs started for the same
+  store at once do not invalidate each other.
+- **`host` is validated before it is redirected to.** It arrives inside the
+  HMAC-verified query string, but it decides where the merchant lands after an
+  embedded install, so it is checked against the two shapes Shopify actually
+  sends and otherwise derived from the store domain.
 - **Tokens are encrypted with your `APP_KEY`.** Rotating it without re-encrypting
   makes every stored token unreadable. Reads fall back to the raw value, so a
   table holding plaintext tokens keeps working and is encrypted on next write.
@@ -715,15 +722,67 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Versioning
 
-Semver. `0.x` while the API settles — require it as `^0.3`.
+Semver. `0.x` while the API settles — require it as `^0.4`.
 
-`0.3.0` added the `app/scopes_update` topic and four events. Nothing breaks,
-but a config you published earlier will not have the new topic — add it by
-hand, and subscribe to it in `shopify.app.toml`.
+### `0.4.0`
 
-`0.2.0` renamed `oauth.skip_hmac_in_debug` to a plain top-level `debug`
-key. If you published the config before then, move the value across; the
-old key is no longer read.
+Six fixes in the OAuth path, three of which change behaviour you may be
+relying on.
+
+**Breaking**
+
+- **`auth/begin` no longer requires a signature.** It verifies one when
+  Shopify sent one — a wrong signature, or one older than `oauth.hmac_ttl`,
+  is still a 401 — but a request carrying none is now admitted. Refusing
+  those meant `ShopifyIntegration::installUrl()` and all three
+  reauthorisation URLs the package generates returned 401 against its own
+  endpoint, which dead-ended the scope-upgrade flow. The route only redirects
+  to Shopify's authorize page, where the merchant still has to log in and
+  approve; `auth/callback` is unchanged and still requires a signature.
+- **An embedded install returns to Shopify, not to a path of your own.** The
+  callback is a top-level navigation, so redirecting to the app's own entry
+  path rendered it outside the admin entirely. It now redirects to
+  `admin.shopify.com/store/…/apps/…` and Shopify loads the app in the frame.
+  **`embedded.entry` is removed** — set your entry point as the App URL in
+  the Partner dashboard instead.
+- **`markUninstalled()` clears the stored tokens.** `access_token`,
+  `refresh_token` and `token_expires_at` are nulled alongside
+  `uninstalled_at`. A listener on `StoreUninstalled` can no longer read them
+  back off the model; a reinstall issues a fresh pair either way.
+
+**Fixed**
+
+- **A declined authorisation is reported as `access_denied`.** Pressing
+  Cancel on the authorize screen used to reach `OAuthFailed` as
+  `'missing shop or code'`, indistinguishable from a malformed request.
+- **Concurrent installs for one store no longer invalidate each other.** The
+  state nonce is keyed by nonce as well as shop, so opening the install in a
+  second tab no longer breaks the first tab's callback.
+
+**Added**
+
+- **`oauth.hmac_ttl`** (default `300`) bounds how long a signed Shopify
+  request stays acceptable. A correct HMAC stays correct forever, so without
+  a window a signed URL kept in a log or a browser history worked
+  indefinitely. Set `0` to check the signature only.
+
+**Security**
+
+- `host` is validated against the shapes Shopify actually sends before it is
+  used as a redirect target, and the state nonce is shape-checked before it
+  reaches the cache as key material.
+
+### `0.3.0`
+
+Added the `app/scopes_update` topic and four events. Nothing breaks, but a
+config you published earlier will not have the new topic — add it by hand, and
+subscribe to it in `shopify.app.toml`.
+
+### `0.2.0`
+
+Renamed `oauth.skip_hmac_in_debug` to a plain top-level `debug` key. If you
+published the config before then, move the value across; the old key is no
+longer read.
 
 Repo: `github.com/ghazniali95/shopify-integration` ·
 Composer: `shopgpt/shopify-integration` (the vendor prefix does not have to

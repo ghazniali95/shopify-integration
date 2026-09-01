@@ -43,7 +43,16 @@ class OAuthController extends Controller
                 : response('A valid ?shop=your-store.myshopify.com parameter is required.', 400);
         }
 
-        if (! $this->hmacVerified($request)) {
+        // Signed only when Shopify sent the merchant here. A "connect your
+        // store" button on your own site, and every reauthorisation URL this
+        // package hands out, carry no signature and cannot invent one.
+        //
+        // Nothing is lost by admitting them: this route only redirects to
+        // Shopify's own authorize page, where the merchant still has to be
+        // logged in and still has to approve. The install is secured on the
+        // way back, where the signature, the single-use state and the code
+        // exchange all have to line up.
+        if (Hmac::isSigned($request) && ! $this->hmacVerified($request)) {
             OAuthFailed::dispatch($shop, 'hmac');
 
             return response('HMAC verification failed.', 401);
@@ -61,6 +70,14 @@ class OAuthController extends Controller
     {
         $shop = ShopDomain::normalise($request->query('shop'));
         $code = $request->query('code');
+
+        // The merchant pressed Cancel on the authorize screen. A normal
+        // outcome, and a listener wants to tell it apart from a malformed
+        // request — one is a person changing their mind, the other is a bug
+        // or an attack.
+        if (is_string($error = $request->query('error')) && $error !== '') {
+            return $this->fail($shop, $error === 'access_denied' ? 'access_denied' : 'oauth error: '.$error);
+        }
 
         if ($shop === null || ! is_string($code) || $code === '') {
             return $this->fail($shop, 'missing shop or code');
@@ -138,14 +155,15 @@ class OAuthController extends Controller
     private function redirectAfterInstall(InstallContext $context)
     {
         // An embedded app must land back inside the admin frame, not on your
-        // own domain — otherwise the merchant ends up outside Shopify.
+        // own domain. The callback is a top-level navigation, so redirecting
+        // to the app's own entry path here renders it standalone, outside
+        // Shopify — the merchant installs the app and lands somewhere that
+        // looks nothing like the admin they started in.
+        //
+        // Handing the browser back to Shopify is what puts the app in the
+        // frame: Shopify loads the App URL inside the admin itself.
         if (config('shopifyIntegration.embedded.enabled')) {
-            $entry = '/'.ltrim((string) config('shopifyIntegration.embedded.entry', '/shopify/app'), '/');
-
-            return redirect()->to($entry.'?'.http_build_query(array_filter([
-                'shop' => $context->domain(),
-                'host' => $context->host,
-            ])));
+            return redirect()->away($this->adminAppUrl($context));
         }
 
         $target = $context->isReinstall
@@ -153,6 +171,52 @@ class OAuthController extends Controller
             : config('shopifyIntegration.redirects.after_install', '/');
 
         return $this->to($target, $context);
+    }
+
+    /**
+     * Where the app lives inside the Shopify admin.
+     *
+     * `host` is Shopify's own base64url of that location and is the value to
+     * prefer — it is correct for admin.shopify.com and for the older
+     * per-store admin alike. It arrives on a request whose whole query string
+     * is HMAC-verified above, so it is trustworthy, but it is still validated
+     * before being redirected to: an unvalidated host would turn the callback
+     * into an open redirect the moment the signature check is relaxed.
+     */
+    private function adminAppUrl(InstallContext $context): string
+    {
+        $clientId = (string) config('shopifyIntegration.client_id');
+        $host     = $this->decodedHost($context->host) ?? $this->hostFromDomain($context->domain());
+
+        return "https://{$host}/apps/{$clientId}";
+    }
+
+    /** @return string|null The decoded host, or null if it is not one Shopify would send. */
+    private function decodedHost(?string $host): ?string
+    {
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        $decoded = base64_decode(strtr($host, '-_', '+/'), true);
+
+        if ($decoded === false) {
+            return null;
+        }
+
+        $shop = '[a-zA-Z0-9][a-zA-Z0-9\-]*';
+
+        return preg_match("#^(admin\.shopify\.com/store/{$shop}|{$shop}\.myshopify\.com/admin)$#", $decoded)
+            ? $decoded
+            : null;
+    }
+
+    /** The fallback when `host` is absent or unusable: derive it from the store domain. */
+    private function hostFromDomain(?string $domain): string
+    {
+        $handle = explode('.', (string) $domain)[0];
+
+        return "admin.shopify.com/store/{$handle}";
     }
 
     /**

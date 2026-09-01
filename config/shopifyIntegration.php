@@ -41,10 +41,16 @@ return [
     */
 
     'embedded' => [
+        /*
+         * Runs inside the Shopify Admin iframe.
+         *
+         * With this on, a completed install hands the browser back to Shopify
+         * rather than to a path of your own — Shopify then loads the App URL
+         * from your Partner dashboard inside the admin, which is what puts
+         * the app in the frame. That App URL is the only place the entry
+         * point is configured.
+         */
         'enabled' => env('SHOPIFY_EMBEDDED', false),
-
-        // Where an authenticated merchant lands inside the admin frame.
-        'entry'   => '/shopify/app',
     ],
 
     /*
@@ -76,6 +82,15 @@ return [
          */
         'state_store' => 'cache',
         'state_ttl'   => 300,
+
+        /*
+         * How long a signed Shopify request stays acceptable, in seconds.
+         *
+         * The HMAC itself never expires, so without a window a signed install
+         * URL pulled out of a log or a browser history keeps working forever.
+         * Set to 0 to check the signature only.
+         */
+        'hmac_ttl' => 300,
 
         /*
          * Where to send someone who hits the install route with no shop

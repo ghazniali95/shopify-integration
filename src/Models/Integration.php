@@ -201,9 +201,22 @@ class Integration extends Model
         );
     }
 
+    /**
+     * Record the uninstall and drop the credentials with it.
+     *
+     * The token is already dead — Shopify revokes it the moment the app is
+     * removed — so keeping it stores a secret that can never be used again
+     * and would have to be disclosed in a breach. A reinstall issues a new
+     * pair through OAuth or token exchange either way.
+     */
     public function markUninstalled(): void
     {
-        $this->forceFill(['integration_uninstalled_at' => now()])->saveQuietly();
+        $this->forceFill([
+            'integration_uninstalled_at'   => now(),
+            'integration_access_token'     => null,
+            'integration_refresh_token'    => null,
+            'integration_token_expires_at' => null,
+        ])->saveQuietly();
     }
 
     /**

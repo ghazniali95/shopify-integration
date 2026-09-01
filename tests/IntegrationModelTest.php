@@ -71,6 +71,34 @@ class IntegrationModelTest extends TestCase
     }
 
     /**
+     * Shopify revokes the token the moment the app is removed, so keeping it
+     * stores a secret that can never be used again and would have to be
+     * disclosed in a breach.
+     */
+    #[Test]
+    public function uninstalling_drops_the_credentials_with_the_install(): void
+    {
+        $store = Integration::query()->create([
+            'store_domain'     => 'acme.myshopify.com',
+            'access_token'     => 'shpat_secret',
+            'refresh_token'    => 'shprt_secret',
+            'token_expires_at' => now()->addDay(),
+        ]);
+
+        $store->markUninstalled();
+
+        $fresh = $store->fresh();
+
+        $this->assertNull($fresh->access_token);
+        $this->assertNull($fresh->refresh_token);
+        $this->assertNull($fresh->token_expires_at);
+        $this->assertFalse($fresh->hasValidToken());
+
+        // Nothing of the secret survives in the row itself, not just the accessor.
+        $this->assertStringNotContainsString('shpat_secret', $fresh->toJson());
+    }
+
+    /**
      * Adding a scope to config does not change tokens already issued — without
      * this check the merchant hits 403s at whichever call site needed it.
      */

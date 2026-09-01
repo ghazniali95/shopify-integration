@@ -27,7 +27,7 @@ class HmacTest extends TestCase
     #[Test]
     public function it_verifies_a_correctly_signed_request(): void
     {
-        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => '1700000000'];
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => (string) time()];
         $params['hmac'] = $this->sign($params);
 
         $this->assertTrue(Hmac::verifyRequest($this->request($params), 'test-secret'));
@@ -36,7 +36,7 @@ class HmacTest extends TestCase
     #[Test]
     public function it_rejects_a_tampered_parameter(): void
     {
-        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => '1700000000'];
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => (string) time()];
         $params['hmac'] = $this->sign($params);
         $params['shop'] = 'attacker.myshopify.com';
 
@@ -47,6 +47,70 @@ class HmacTest extends TestCase
     public function it_rejects_a_missing_hmac(): void
     {
         $this->assertFalse(Hmac::verifyRequest($this->request(['shop' => 'acme.myshopify.com']), 'test-secret'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Timestamp freshness
+    |--------------------------------------------------------------------------
+    */
+
+    /** A correct signature over a stale timestamp is a replay, not a merchant. */
+    #[Test]
+    public function it_rejects_a_correctly_signed_but_stale_request(): void
+    {
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => (string) (time() - 3600)];
+        $params['hmac'] = $this->sign($params);
+
+        $this->assertFalse(Hmac::verifyRequest($this->request($params), 'test-secret'));
+    }
+
+    /** Symmetric: a timestamp well into the future is as suspect as a stale one. */
+    #[Test]
+    public function it_rejects_a_timestamp_from_the_future(): void
+    {
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => (string) (time() + 3600)];
+        $params['hmac'] = $this->sign($params);
+
+        $this->assertFalse(Hmac::verifyRequest($this->request($params), 'test-secret'));
+    }
+
+    #[Test]
+    public function it_rejects_a_non_numeric_timestamp(): void
+    {
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => 'yesterday'];
+        $params['hmac'] = $this->sign($params);
+
+        $this->assertFalse(Hmac::verifyRequest($this->request($params), 'test-secret'));
+    }
+
+    /** Older Shopify surfaces omit it; the signature alone still carries them. */
+    #[Test]
+    public function it_accepts_a_signed_request_with_no_timestamp_at_all(): void
+    {
+        $params = ['shop' => 'acme.myshopify.com'];
+        $params['hmac'] = $this->sign($params);
+
+        $this->assertTrue(Hmac::verifyRequest($this->request($params), 'test-secret'));
+    }
+
+    #[Test]
+    public function the_freshness_window_can_be_switched_off(): void
+    {
+        config(['shopifyIntegration.oauth.hmac_ttl' => 0]);
+
+        $params = ['shop' => 'acme.myshopify.com', 'timestamp' => '1700000000'];
+        $params['hmac'] = $this->sign($params);
+
+        $this->assertTrue(Hmac::verifyRequest($this->request($params), 'test-secret'));
+    }
+
+    #[Test]
+    public function it_tells_a_signed_request_from_an_unsigned_one(): void
+    {
+        $this->assertTrue(Hmac::isSigned($this->request(['shop' => 'acme.myshopify.com', 'hmac' => 'abc'])));
+        $this->assertFalse(Hmac::isSigned($this->request(['shop' => 'acme.myshopify.com'])));
+        $this->assertFalse(Hmac::isSigned($this->request(['shop' => 'acme.myshopify.com', 'hmac' => ''])));
     }
 
     /**

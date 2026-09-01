@@ -85,14 +85,62 @@ class OAuthFlowTest extends TestCase
         Event::assertDispatched(OAuthStarted::class);
     }
 
+    /**
+     * A "connect your store" button on your own site, and every reauthorisation
+     * URL this package hands out, carry no signature and cannot invent one.
+     * Refusing them made installUrl() and all three reauthorise paths 401.
+     */
     #[Test]
-    public function begin_rejects_an_unsigned_request(): void
+    public function begin_accepts_an_unsigned_merchant_initiated_request(): void
     {
-        Event::fake([OAuthFailed::class]);
+        Event::fake([OAuthStarted::class, OAuthFailed::class]);
 
-        $this->get('/shopify/auth/begin?shop='.self::SHOP)->assertStatus(401);
+        $response = $this->get('/shopify/auth/begin?shop='.self::SHOP);
 
-        Event::assertDispatched(OAuthFailed::class);
+        $response->assertRedirect();
+        $this->assertStringStartsWith(
+            'https://'.self::SHOP.'/admin/oauth/authorize?',
+            $response->headers->get('Location'),
+        );
+
+        Event::assertDispatched(OAuthStarted::class);
+        Event::assertNotDispatched(OAuthFailed::class);
+    }
+
+    /** Absent is fine; present and wrong is not. */
+    #[Test]
+    public function begin_rejects_a_request_carrying_a_bad_signature(): void
+    {
+        Event::fake([OAuthFailed::class, OAuthStarted::class]);
+
+        $this->get('/shopify/auth/begin?shop='.self::SHOP.'&hmac=deadbeef')->assertStatus(401);
+
+        Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'hmac');
+        Event::assertNotDispatched(OAuthStarted::class);
+    }
+
+    /** A signed install URL kept from a log must not still work an hour later. */
+    #[Test]
+    public function begin_rejects_a_signed_request_that_has_gone_stale(): void
+    {
+        Event::fake([OAuthFailed::class, OAuthStarted::class]);
+
+        $this->get($this->signed('/shopify/auth/begin', [
+            'shop' => self::SHOP, 'timestamp' => (string) (time() - 3600),
+        ]))->assertStatus(401);
+
+        Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'hmac');
+        Event::assertNotDispatched(OAuthStarted::class);
+    }
+
+    /** The end-to-end version of the bug: the package's own URL must be usable. */
+    #[Test]
+    public function the_install_url_the_package_generates_is_accepted_by_begin(): void
+    {
+        $url = \ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration::installUrl(self::SHOP);
+
+        $this->get(parse_url($url, PHP_URL_PATH).'?'.parse_url($url, PHP_URL_QUERY))
+            ->assertRedirect();
     }
 
     #[Test]
@@ -202,6 +250,70 @@ class OAuthFlowTest extends TestCase
         Event::assertDispatched(OAuthFailed::class);
     }
 
+    /**
+     * The merchant pressed Cancel. A normal outcome, and a listener has to be
+     * able to tell it from a malformed request — one is a person changing
+     * their mind, the other is a bug or an attack.
+     */
+    #[Test]
+    public function callback_reports_a_declined_authorisation_distinctly(): void
+    {
+        Event::fake([OAuthFailed::class, StoreInstalled::class]);
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'error' => 'access_denied',
+        ]))->assertRedirect('/');
+
+        Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'access_denied');
+        Event::assertNotDispatched(StoreInstalled::class);
+        $this->assertNull(Integration::forDomain(self::SHOP));
+    }
+
+    /**
+     * Two installs started for one store at once. Keyed by shop alone, the
+     * second issue overwrote the first, and the first tab's callback failed
+     * on a nonce the package had itself handed out.
+     */
+    #[Test]
+    public function two_concurrent_installs_for_one_store_both_stay_valid(): void
+    {
+        $this->fakeShopify();
+
+        $first  = OAuthState::issue(self::SHOP);
+        $second = OAuthState::issue(self::SHOP);
+
+        $this->assertNotSame($first, $second);
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $first,
+        ]));
+
+        $this->assertNotNull(Integration::forDomain(self::SHOP));
+
+        Integration::query()->delete();
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $second,
+        ]));
+
+        $this->assertNotNull(Integration::forDomain(self::SHOP));
+    }
+
+    /** A state parameter is a cache key now, so its shape is checked first. */
+    #[Test]
+    public function callback_rejects_a_malformed_state_parameter(): void
+    {
+        $this->fakeShopify();
+
+        OAuthState::issue(self::SHOP);
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => '../../some:other:key',
+        ]))->assertRedirect('/');
+
+        $this->assertNull(Integration::forDomain(self::SHOP));
+    }
+
     #[Test]
     public function callback_rejects_a_replayed_state(): void
     {
@@ -293,13 +405,46 @@ class OAuthFlowTest extends TestCase
 
         $state = OAuthState::issue(self::SHOP);
 
+        // base64url of admin.shopify.com/store/acme — what Shopify actually sends.
+        $host = rtrim(strtr(base64_encode('admin.shopify.com/store/acme'), '+/', '-_'), '=');
+
         $response = $this->get($this->signed('/shopify/auth/callback', [
-            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state, 'host' => 'YWNtZS9hZG1pbg',
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state, 'host' => $host,
         ]));
 
-        $location = $response->headers->get('Location');
-        $this->assertStringContainsString('/shopify/app', $location);
-        $this->assertStringContainsString('host=YWNtZS9hZG1pbg', $location);
+        // Handing the browser back to Shopify is what puts the app in the
+        // frame. Redirecting to the app's own entry path renders it at top
+        // level, outside the admin entirely.
+        $response->assertRedirect('https://admin.shopify.com/store/acme/apps/test-client-id');
+    }
+
+    /** No host, or one that is not a Shopify admin: derive it from the domain. */
+    #[Test]
+    public function an_embedded_install_falls_back_to_the_derived_admin_url(): void
+    {
+        config(['shopifyIntegration.embedded.enabled' => true]);
+        $this->fakeShopify();
+
+        $state = OAuthState::issue(self::SHOP);
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state,
+        ]))->assertRedirect('https://admin.shopify.com/store/acme/apps/test-client-id');
+    }
+
+    /** An attacker-supplied host must never become the redirect target. */
+    #[Test]
+    public function an_embedded_install_refuses_a_foreign_host(): void
+    {
+        config(['shopifyIntegration.embedded.enabled' => true]);
+        $this->fakeShopify();
+
+        $state = OAuthState::issue(self::SHOP);
+        $host  = rtrim(strtr(base64_encode('evil.example.com/store/acme'), '+/', '-_'), '=');
+
+        $this->get($this->signed('/shopify/auth/callback', [
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state, 'host' => $host,
+        ]))->assertRedirect('https://admin.shopify.com/store/acme/apps/test-client-id');
     }
 
     /*
@@ -309,21 +454,28 @@ class OAuthFlowTest extends TestCase
     */
 
     /**
-     * The default that matters. HMAC is what proves an install request came
-     * from Shopify, so an unsigned one must be refused unless someone has
-     * deliberately turned the check off.
+     * The default that matters. `begin` only redirects to Shopify's own
+     * authorize page, so an unsigned request there is admitted — but the
+     * callback is where the install is actually granted, and an unsigned one
+     * must be refused unless someone deliberately turned the check off.
      */
     #[Test]
-    public function an_unsigned_install_is_refused_by_default(): void
+    public function an_unsigned_callback_is_refused_by_default(): void
     {
-        Event::fake([OAuthFailed::class, OAuthStarted::class]);
+        $this->fakeShopify();
+        Event::fake([OAuthFailed::class, StoreInstalled::class]);
 
         $this->assertFalse(config('shopifyIntegration.debug'));
 
-        $this->get('/shopify/auth/begin?shop='.self::SHOP)->assertStatus(401);
+        $state = OAuthState::issue(self::SHOP);
 
+        $this->get('/shopify/auth/callback?'.http_build_query([
+            'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state,
+        ]))->assertRedirect('/');
+
+        $this->assertNull(Integration::forDomain(self::SHOP));
         Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'hmac');
-        Event::assertNotDispatched(OAuthStarted::class);
+        Event::assertNotDispatched(StoreInstalled::class);
     }
 
     #[Test]

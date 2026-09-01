@@ -3,7 +3,7 @@
 namespace ShopGPT\ShopifyIntegration\Services;
 
 use Illuminate\Http\Request;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 use ShopGPT\ShopifyIntegration\Support\ShopDomain;
 
 /**
@@ -125,9 +125,9 @@ class SessionTokenService
     }
 
     /** Headers an authenticated XHR from the admin iframe would carry. */
-    public function headersFor(Integration|string $store, array $overrides = []): array
+    public function headersFor(ShopifyStore|string $store, array $overrides = []): array
     {
-        $shop = $store instanceof Integration ? (string) $store->store_domain : $store;
+        $shop = $store instanceof ShopifyStore ? $store->shopifyDomain() : $store;
 
         return ['Authorization' => 'Bearer '.$this->mint($shop, $overrides)];
     }

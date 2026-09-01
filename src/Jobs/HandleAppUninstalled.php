@@ -2,6 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Jobs;
 
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Events\StoreUninstalled;
 
 /**
@@ -12,15 +13,15 @@ use ShopGPT\ShopifyIntegration\Events\StoreUninstalled;
  */
 class HandleAppUninstalled extends WebhookJob
 {
-    public function handle(): void
+    public function handle(ShopifyStoreRepository $stores): void
     {
         $store = $this->store();
 
-        if (! $store || ! $store->isInstalled()) {
+        if (! $store || ! $store->shopifyIsInstalled()) {
             return;
         }
 
-        $store->markUninstalled();
+        $stores->markUninstalled($store);
 
         StoreUninstalled::dispatch($store);
     }

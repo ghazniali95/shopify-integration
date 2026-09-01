@@ -2,7 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Support;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * Everything known about an install at the moment it completes. Handed to
@@ -11,7 +11,7 @@ use ShopGPT\ShopifyIntegration\Models\Integration;
 class InstallContext
 {
     public function __construct(
-        public readonly Integration $store,
+        public readonly ShopifyStore $store,
         public readonly array $shopData = [],
         public readonly bool $isNewInstall = false,
         public readonly bool $isReinstall = false,
@@ -23,22 +23,22 @@ class InstallContext
 
     public function domain(): ?string
     {
-        return $this->store->store_domain;
+        return $this->store->shopifyDomain() ?: ($this->shopData['myshopify_domain'] ?? null);
     }
 
     public function shopOwner(): ?string
     {
-        return $this->store->shop_owner;
+        return $this->shopData['shop_owner'] ?? null;
     }
 
     public function email(): ?string
     {
-        return $this->store->email;
+        return $this->shopData['email'] ?? null;
     }
 
     public function currency(): ?string
     {
-        return $this->store->currency;
+        return $this->shopData['currency'] ?? null;
     }
 
     /**
@@ -57,26 +57,34 @@ class InstallContext
             return $email;
         }
 
-        $id = $this->store->external_id ?: str_replace('.', '-', (string) $this->domain());
+        $id = $this->store->shopifyExternalId() ?: str_replace('.', '-', (string) $this->domain());
 
         return "shopify_{$id}@{$fallbackDomain}";
     }
 
-    /** The eleven promoted profile columns, as an array. */
+    /**
+     * The eleven fields worth promoting out of shop.json.
+     *
+     * Read from the payload, not from the store: whether any of them is
+     * persisted is your app's decision now, and a listener still needs them
+     * on a table that keeps none.
+     *
+     * @return array<string, mixed>
+     */
     public function profile(): array
     {
         return [
-            'name'             => $this->store->name,
-            'email'            => $this->store->email,
-            'shop_owner'       => $this->store->shop_owner,
-            'phone'            => $this->store->phone,
-            'currency'         => $this->store->currency,
-            'country_code'     => $this->store->country_code,
-            'country_name'     => $this->store->country_name,
-            'primary_locale'   => $this->store->primary_locale,
-            'plan_name'        => $this->store->plan_name,
-            'weight_unit'      => $this->store->weight_unit,
-            'password_enabled' => $this->store->password_enabled,
+            'name'             => $this->shopData['name'] ?? null,
+            'email'            => $this->shopData['email'] ?? null,
+            'shop_owner'       => $this->shopData['shop_owner'] ?? null,
+            'phone'            => $this->shopData['phone'] ?? null,
+            'currency'         => $this->shopData['currency'] ?? null,
+            'country_code'     => $this->shopData['country_code'] ?? null,
+            'country_name'     => $this->shopData['country_name'] ?? null,
+            'primary_locale'   => $this->shopData['primary_locale'] ?? null,
+            'plan_name'        => $this->shopData['plan_name'] ?? null,
+            'weight_unit'      => $this->shopData['weight_unit'] ?? null,
+            'password_enabled' => $this->shopData['password_enabled'] ?? null,
         ];
     }
 
@@ -86,7 +94,7 @@ class InstallContext
      */
     public function isDevelopmentStore(): bool
     {
-        return in_array($this->store->plan_name, [
+        return in_array($this->shopData['plan_name'] ?? null, [
             'partner_test', 'affiliate', 'plus_partner_sandbox', 'staff', 'staff_business',
         ], true);
     }

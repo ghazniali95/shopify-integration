@@ -172,7 +172,7 @@ class OAuthFlowTest extends TestCase
 
         $this->completeInstall()->assertRedirect('/');
 
-        $store = Integration::forDomain(self::SHOP);
+        $store = $this->stores()->findByDomain(self::SHOP);
 
         $this->assertNotNull($store);
         $this->assertSame('shpat_new_token', $store->access_token);
@@ -207,13 +207,20 @@ class OAuthFlowTest extends TestCase
     #[Test]
     public function the_access_token_is_encrypted_at_rest(): void
     {
+        // Opt-in: an app whose model already casts its token column would
+        // otherwise end up double-encrypted.
+        config()->set('shopifyIntegration.store.encrypt_tokens', true);
+
         $this->fakeShopify();
         $this->completeInstall();
 
-        $raw = \DB::table('integrations')->value('integration_access_token');
+        $raw = \DB::table('integrations')->value('access_token');
 
         $this->assertNotSame('shpat_new_token', $raw);
-        $this->assertSame('shpat_new_token', Integration::forDomain(self::SHOP)->access_token);
+        $this->assertSame(
+            'shpat_new_token',
+            $this->stores()->findByDomain(self::SHOP)->shopifyAccessToken(),
+        );
     }
 
     /**
@@ -224,14 +231,14 @@ class OAuthFlowTest extends TestCase
     public function a_plaintext_legacy_token_is_still_readable(): void
     {
         \DB::table('integrations')->insert([
-            'integration_platform'     => 'shopify',
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_plaintext_legacy',
+            'platform'     => 'shopify',
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_plaintext_legacy',
             'created_at'               => now(),
             'updated_at'               => now(),
         ]);
 
-        $this->assertSame('shpat_plaintext_legacy', Integration::forDomain(self::SHOP)->access_token);
+        $this->assertSame('shpat_plaintext_legacy', $this->stores()->findByDomain(self::SHOP)->access_token);
     }
 
     #[Test]
@@ -246,7 +253,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => 'not-the-issued-state',
         ]))->assertRedirect('/');
 
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
         Event::assertDispatched(OAuthFailed::class);
     }
 
@@ -266,7 +273,7 @@ class OAuthFlowTest extends TestCase
 
         Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'access_denied');
         Event::assertNotDispatched(StoreInstalled::class);
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
     }
 
     /**
@@ -288,7 +295,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $first,
         ]));
 
-        $this->assertNotNull(Integration::forDomain(self::SHOP));
+        $this->assertNotNull($this->stores()->findByDomain(self::SHOP));
 
         Integration::query()->delete();
 
@@ -296,7 +303,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $second,
         ]));
 
-        $this->assertNotNull(Integration::forDomain(self::SHOP));
+        $this->assertNotNull($this->stores()->findByDomain(self::SHOP));
     }
 
     /** A state parameter is a cache key now, so its shape is checked first. */
@@ -311,7 +318,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => '../../some:other:key',
         ]))->assertRedirect('/');
 
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
     }
 
     #[Test]
@@ -323,12 +330,12 @@ class OAuthFlowTest extends TestCase
         $params = ['shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state];
 
         $this->get($this->signed('/shopify/auth/callback', $params));
-        $this->assertNotNull(Integration::forDomain(self::SHOP));
+        $this->assertNotNull($this->stores()->findByDomain(self::SHOP));
 
         // The nonce is single-use, so the same URL replayed must not authorise.
         Integration::query()->delete();
         $this->get($this->signed('/shopify/auth/callback', $params))->assertRedirect('/');
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
     }
 
     #[Test]
@@ -341,7 +348,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state,
         ]))->assertRedirect('/');
 
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
     }
 
     #[Test]
@@ -353,14 +360,14 @@ class OAuthFlowTest extends TestCase
         $this->completeInstall();
         Event::assertDispatched(StoreInstalled::class);
 
-        $store = Integration::forDomain(self::SHOP);
-        $store->markUninstalled();
+        $store = $this->stores()->findByDomain(self::SHOP);
+        $this->stores()->markUninstalled($store);
         $this->assertFalse($store->fresh()->isInstalled());
 
         $this->completeInstall();
 
         $this->assertSame(1, Integration::query()->count());
-        $this->assertTrue(Integration::forDomain(self::SHOP)->isInstalled());
+        $this->assertTrue($this->stores()->findByDomain(self::SHOP)->isInstalled());
         Event::assertDispatched(StoreReinstalled::class);
     }
 
@@ -374,8 +381,8 @@ class OAuthFlowTest extends TestCase
         $this->fakeShopify();
         $this->completeInstall();
 
-        Integration::forDomain(self::SHOP)->forceFill([
-            'integration_store_domain' => 'old-name.myshopify.com',
+        $this->stores()->findByDomain(self::SHOP)->forceFill([
+            'store_domain' => 'old-name.myshopify.com',
         ])->save();
 
         $this->completeInstall();
@@ -391,7 +398,7 @@ class OAuthFlowTest extends TestCase
 
         $this->completeInstall()->assertRedirect('/');
 
-        $store = Integration::forDomain(self::SHOP);
+        $store = $this->stores()->findByDomain(self::SHOP);
         $this->assertNotNull($store);
         $this->assertSame('shpat_new_token', $store->access_token);
         $this->assertNull($store->name);
@@ -473,7 +480,7 @@ class OAuthFlowTest extends TestCase
             'shop' => self::SHOP, 'code' => 'auth-code', 'state' => $state,
         ]))->assertRedirect('/');
 
-        $this->assertNull(Integration::forDomain(self::SHOP));
+        $this->assertNull($this->stores()->findByDomain(self::SHOP));
         Event::assertDispatched(OAuthFailed::class, fn ($e) => $e->reason === 'hmac');
         Event::assertNotDispatched(StoreInstalled::class);
     }
@@ -507,6 +514,6 @@ class OAuthFlowTest extends TestCase
         $this->get('/shopify/auth/callback?shop='.self::SHOP.'&code=abc123&state='.$state)
             ->assertRedirect();
 
-        $this->assertNotNull(Integration::forDomain(self::SHOP));
+        $this->assertNotNull($this->stores()->findByDomain(self::SHOP));
     }
 }

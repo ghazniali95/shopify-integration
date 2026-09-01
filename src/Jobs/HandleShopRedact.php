@@ -3,6 +3,7 @@
 namespace ShopGPT\ShopifyIntegration\Jobs;
 
 use Illuminate\Support\Facades\Log;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 
 /**
  * Shopify asks for the store's data to be erased, 48 hours after uninstall.
@@ -16,7 +17,7 @@ use Illuminate\Support\Facades\Log;
  */
 class HandleShopRedact extends WebhookJob
 {
-    public function handle(): void
+    public function handle(ShopifyStoreRepository $stores): void
     {
         $store = $this->store();
 
@@ -24,9 +25,9 @@ class HandleShopRedact extends WebhookJob
             return;
         }
 
-        $store->redact();
+        $stores->redact($store);
 
         Log::channel(config('shopifyIntegration.webhooks.log_channel'))
-            ->info('shopifyIntegration: shop redacted', ['store' => $store->store_domain]);
+            ->info('shopifyIntegration: shop redacted', ['store' => $store->shopifyDomain()]);
     }
 }

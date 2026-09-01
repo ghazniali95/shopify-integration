@@ -7,16 +7,23 @@ use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Events\StoreTokenRefreshed;
 use ShopGPT\ShopifyIntegration\Events\TokenRefreshFailed;
 use ShopGPT\ShopifyIntegration\Exceptions\TokenRefreshException;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Support\StoreState;
 use Throwable;
 
 class TokenService
 {
     /** Seconds a second caller waits for the refresh already in flight. */
     private const LOCK_WAIT = 10;
+
+    public function __construct(
+        private readonly ShopifyStoreRepository $stores,
+    ) {
+    }
 
     /**
      * Guarantee a usable access token before a Shopify call.
@@ -25,9 +32,9 @@ class TokenService
      * about expiry. A store with no expiry holds a legacy permanent token and
      * is returned untouched.
      */
-    public function ensureFresh(Integration $store): Integration
+    public function ensureFresh(ShopifyStore $store): ShopifyStore
     {
-        if ($store->token_expires_at === null || ! $store->tokenExpiresSoon()) {
+        if ($store->shopifyTokenExpiresAt() === null || ! StoreState::tokenExpiresSoon($store)) {
             return $store;
         }
 
@@ -45,7 +52,7 @@ class TokenService
      * @throws TokenRefreshException when the refresh fails and the token held
      *         has already expired, so the caller cannot proceed.
      */
-    public function refresh(Integration $store): Integration
+    public function refresh(ShopifyStore $store): ShopifyStore
     {
         $lock = $this->lock($store);
 
@@ -66,9 +73,9 @@ class TokenService
         try {
             // The winner has already written a token; re-read rather than
             // spend this store's second refresh on the same expiry.
-            $store->refresh();
+            $store = $this->stores->findByKey($store->getKey()) ?? $store;
 
-            if (! $store->tokenExpiresSoon()) {
+            if (! StoreState::tokenExpiresSoon($store)) {
                 return $store;
             }
 
@@ -78,20 +85,22 @@ class TokenService
         }
     }
 
-    private function performRefresh(Integration $store): Integration
+    private function performRefresh(ShopifyStore $store): ShopifyStore
     {
-        if (empty($store->refresh_token)) {
+        $refreshToken = $store->shopifyRefreshToken();
+
+        if (empty($refreshToken)) {
             return $this->giveUp($store, 'no refresh token stored');
         }
 
         try {
             $response = Http::asForm()
                 ->timeout(15)
-                ->post("https://{$store->store_domain}/admin/oauth/access_token", [
+                ->post("https://{$store->shopifyDomain()}/admin/oauth/access_token", [
                     'client_id'     => config('shopifyIntegration.client_id'),
                     'client_secret' => config('shopifyIntegration.client_secret'),
                     'grant_type'    => 'refresh_token',
-                    'refresh_token' => $store->refresh_token,
+                    'refresh_token' => $refreshToken,
                 ]);
         } catch (Throwable $e) {
             return $this->giveUp($store, $e->getMessage());
@@ -104,13 +113,11 @@ class TokenService
         // Written together: Shopify treats the returned refresh token as the
         // replacement for the one just used, so storing the access token
         // without it would strand the store on a spent credential.
-        $store->forceFill([
-            'integration_access_token'     => $response->json('access_token'),
-            'integration_refresh_token'    => $response->json('refresh_token') ?: $store->refresh_token,
-            'integration_token_expires_at' => $response->json('expires_in')
-                ? now()->addSeconds((int) $response->json('expires_in'))
-                : null,
-        ])->saveQuietly();
+        $store = $this->stores->updateTokens($store, [
+            'access_token'  => $response->json('access_token'),
+            'refresh_token' => $response->json('refresh_token') ?: $refreshToken,
+            'expires_in'    => $response->json('expires_in'),
+        ]);
 
         StoreTokenRefreshed::dispatch($store);
 
@@ -125,7 +132,7 @@ class TokenService
      * refreshing at all only in theory; failing the request outright because
      * of a cache driver choice is worse in practice.
      */
-    private function lock(Integration $store): ?Lock
+    private function lock(ShopifyStore $store): ?Lock
     {
         $cache = Cache::store();
 
@@ -148,13 +155,18 @@ class TokenService
      *
      * @throws TokenRefreshException
      */
-    private function giveUp(Integration $store, string $reason): Integration
+    private function giveUp(ShopifyStore $store, string $reason): ShopifyStore
     {
-        if (! empty($store->access_token) && $store->token_expires_at?->isFuture()) {
+        $expiresAt = $store->shopifyTokenExpiresAt();
+        $stillGood = ! empty($store->shopifyAccessToken())
+            && $expiresAt !== null
+            && $expiresAt->getTimestamp() > time();
+
+        if ($stillGood) {
             Log::warning('shopifyIntegration: token refresh failed, continuing with the current token', [
-                'store'      => $store->store_domain,
+                'store'      => $store->shopifyDomain(),
                 'reason'     => $reason,
-                'expires_at' => $store->token_expires_at->toDateTimeString(),
+                'expires_at' => $expiresAt->format('Y-m-d H:i:s'),
             ]);
 
             TokenRefreshFailed::dispatch($store, $reason, false);
@@ -163,7 +175,7 @@ class TokenService
         }
 
         Log::error('shopifyIntegration: token refresh failed and the stored token has expired', [
-            'store'  => $store->store_domain,
+            'store'  => $store->shopifyDomain(),
             'reason' => $reason,
         ]);
 

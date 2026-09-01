@@ -8,7 +8,7 @@ use ShopGPT\ShopifyIntegration\Events\OAuthFailed;
 use ShopGPT\ShopifyIntegration\Events\StoreInstalled;
 use ShopGPT\ShopifyIntegration\Events\StoreReinstalled;
 use ShopGPT\ShopifyIntegration\Events\StoreTokenExchanged;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 use ShopGPT\ShopifyIntegration\Support\InstallContext;
 use Throwable;
 
@@ -38,7 +38,7 @@ class TokenExchangeService
      * means the app is genuinely not installed for that store and the merchant
      * has to go through OAuth.
      */
-    public function exchange(string $shop, string $sessionToken): ?Integration
+    public function exchange(string $shop, string $sessionToken): ?ShopifyStore
     {
         $token = $this->requestToken($shop, $sessionToken);
 

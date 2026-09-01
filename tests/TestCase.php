@@ -3,6 +3,7 @@
 namespace ShopGPT\ShopifyIntegration\Tests;
 
 use Orchestra\Testbench\TestCase as Orchestra;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\ShopifyIntegrationServiceProvider;
 
 abstract class TestCase extends Orchestra
@@ -29,7 +30,13 @@ abstract class TestCase extends Orchestra
 
     protected function defineDatabaseMigrations(): void
     {
-        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        $this->loadMigrationsFrom(__DIR__.'/database/migrations');
+    }
+
+    /** The repository every read and write goes through. */
+    protected function stores(): ShopifyStoreRepository
+    {
+        return app(ShopifyStoreRepository::class);
     }
 
     /** Sign a query string the way Shopify does. */

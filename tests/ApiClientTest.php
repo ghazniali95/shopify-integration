@@ -17,10 +17,10 @@ class ApiClientTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain'     => 'acme.myshopify.com',
-            'integration_access_token'     => 'shpat_token',
-            'integration_refresh_token'    => 'shprt_token',
-            'integration_token_expires_at' => now()->addDay(),
+            'store_domain'     => 'acme.myshopify.com',
+            'access_token'     => 'shpat_token',
+            'refresh_token'    => 'shprt_token',
+            'token_expires_at' => now()->addDay(),
         ], $attributes));
     }
 
@@ -49,7 +49,7 @@ class ApiClientTest extends TestCase
             '*/graphql.json' => Http::response(['data' => []]),
         ]);
 
-        $store = $this->store(['integration_token_expires_at' => now()->addSeconds(30)]);
+        $store = $this->store(['token_expires_at' => now()->addSeconds(30)]);
 
         $store->api()->graphql('{ shop { name } }');
 
@@ -167,7 +167,7 @@ class ApiClientTest extends TestCase
             $this->assertNotInstanceOf(StoreUninstalledException::class, $e);
         }
 
-        $this->assertTrue(Integration::forDomain('acme.myshopify.com')->isInstalled());
+        $this->assertTrue($this->stores()->findByDomain('acme.myshopify.com')->isInstalled());
     }
 
     #[Test]

@@ -15,15 +15,15 @@ class ScopesUpdateWebhookTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_token',
-            'integration_scopes'       => 'read_products',
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_token',
+            'scopes'       => 'read_products',
         ], $attributes));
     }
 
     private function handle(Integration $store, array $payload): void
     {
-        (new HandleScopesUpdate($store->id, 'app/scopes_update', $payload))->handle();
+        app()->call([new HandleScopesUpdate($store->id, 'app/scopes_update', $payload), 'handle']);
     }
 
     /**
@@ -34,7 +34,7 @@ class ScopesUpdateWebhookTest extends TestCase
     #[Test]
     public function it_writes_the_new_scopes(): void
     {
-        $store = $this->store(['integration_scopes' => 'read_products']);
+        $store = $this->store(['scopes' => 'read_products']);
 
         $this->handle($store, [
             'previous' => ['read_products'],
@@ -49,7 +49,7 @@ class ScopesUpdateWebhookTest extends TestCase
     {
         config(['shopifyIntegration.scopes' => 'read_products,write_products']);
 
-        $store = $this->store(['integration_scopes' => 'read_products']);
+        $store = $this->store(['scopes' => 'read_products']);
 
         $this->assertFalse($store->hasRequiredScopes());
 
@@ -106,7 +106,7 @@ class ScopesUpdateWebhookTest extends TestCase
     {
         Event::fake([StoreScopesUpdated::class]);
 
-        $store = $this->store(['integration_scopes' => 'read_products']);
+        $store = $this->store(['scopes' => 'read_products']);
 
         $this->handle($store, ['previous' => ['read_products'], 'current' => []]);
 
@@ -121,7 +121,7 @@ class ScopesUpdateWebhookTest extends TestCase
         $id    = $store->id;
         $store->delete();
 
-        (new HandleScopesUpdate($id, 'app/scopes_update', ['current' => ['read_products']]))->handle();
+        app()->call([new HandleScopesUpdate($id, 'app/scopes_update', ['current' => ['read_products']]), 'handle']);
 
         $this->assertSame(0, Integration::query()->count());
     }

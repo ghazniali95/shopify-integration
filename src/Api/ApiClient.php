@@ -11,7 +11,8 @@ use ShopGPT\ShopifyIntegration\Exceptions\RateLimitedException;
 use ShopGPT\ShopifyIntegration\Exceptions\ShopifyApiException;
 use ShopGPT\ShopifyIntegration\Exceptions\StoreUnavailableException;
 use ShopGPT\ShopifyIntegration\Exceptions\StoreUninstalledException;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Services\TokenService;
 
 /**
@@ -26,12 +27,13 @@ class ApiClient
     private const THROTTLE_THRESHOLD = 0.2;
 
     public function __construct(
-        private Integration $store,
+        private ShopifyStore $store,
         private readonly TokenService $tokens,
+        private ?ShopifyStoreRepository $stores = null,
     ) {
     }
 
-    public function store(): Integration
+    public function store(): ShopifyStore
     {
         return $this->store;
     }
@@ -92,7 +94,7 @@ class ApiClient
         $this->store = $this->tokens->ensureFresh($this->store);
 
         $response = Http::withHeaders([
-            'X-Shopify-Access-Token' => $this->store->access_token,
+            'X-Shopify-Access-Token' => $this->store->shopifyAccessToken(),
             'Accept'                 => 'application/json',
         ])
             ->timeout(30)
@@ -123,8 +125,8 @@ class ApiClient
         $body   = $response->body();
 
         if ($status === 401) {
-            if ($this->store->isInstalled()) {
-                $this->store->markUninstalled();
+            if ($this->store->shopifyIsInstalled()) {
+                $this->repository()->markUninstalled($this->store);
                 StoreUninstalled::dispatch($this->store);
             }
 
@@ -133,15 +135,15 @@ class ApiClient
 
         if (in_array($status, [402, 423], true)) {
             Log::warning('shopifyIntegration: store unavailable', [
-                'store'  => $this->store->store_domain,
+                'store'  => $this->store->shopifyDomain(),
                 'status' => $status,
             ]);
 
             throw new StoreUnavailableException(
                 $this->store,
                 $status === 402
-                    ? "Store {$this->store->store_domain} is frozen (unpaid bill)."
-                    : "Store {$this->store->store_domain} is locked by Shopify.",
+                    ? "Store {$this->store->shopifyDomain()} is frozen (unpaid bill)."
+                    : "Store {$this->store->shopifyDomain()} is locked by Shopify.",
                 $status,
                 $body,
             );
@@ -156,7 +158,7 @@ class ApiClient
 
         throw new ShopifyApiException(
             $this->store,
-            "Shopify API returned {$status} for {$this->store->store_domain}.",
+            "Shopify API returned {$status} for {$this->store->shopifyDomain()}.",
             $status,
             $body,
         );
@@ -194,11 +196,16 @@ class ApiClient
         }
     }
 
+    private function repository(): ShopifyStoreRepository
+    {
+        return $this->stores ??= app(ShopifyStoreRepository::class);
+    }
+
     private function url(string $path): string
     {
         $version = config('shopifyIntegration.api_version');
         $path    = ltrim($path, '/');
 
-        return "https://{$this->store->store_domain}/admin/api/{$version}/{$path}";
+        return "https://{$this->store->shopifyDomain()}/admin/api/{$version}/{$path}";
     }
 }

@@ -14,7 +14,7 @@ and gets out of the way.
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [The integrations table](#the-integrations-table)
+- [Storage: the table is yours](#storage-the-table-is-yours)
 - [Quick start — embedded app](#quick-start--embedded-app)
 - [Quick start — standalone app](#quick-start--standalone-app)
 - [Routes](#routes)
@@ -35,16 +35,16 @@ and gets out of the way.
 ## Build status
 
 **Built** — OAuth install and callback (HMAC, state), expiring offline tokens
-with refresh and encryption at rest, the `integrations` table, session token
-verification and token exchange for embedded apps, webhook receipt with dedupe
-and the six shipped topics, the Admin API client (GraphQL and REST), and the
-events, exceptions and facade around all of it.
+with refresh, the storage contracts and the shipped Eloquent repository,
+session token verification and token exchange for embedded apps, webhook
+receipt with dedupe and the six shipped topics, the Admin API client (GraphQL
+and REST), and the events, exceptions and facade around all of it.
 
 **Planned** — webhook registration with Shopify (`webhooks:sync`), Artisan
 commands, `$api->paginate()` and REST call-limit headers,
 `ShopifyIntegration::fake()` and model factories.
 
-150 tests, 337 assertions, green on Laravel 10.50, 11.56 and 12.68.
+154 tests, 355 assertions, green on Laravel 10.50, 11.56 and 12.68.
 
 ---
 
@@ -52,7 +52,7 @@ commands, `$api->paginate()` and REST call-limit headers,
 
 | Package | PHP | Laravel |
 | --- | --- | --- |
-| `0.4.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
+| `0.5.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
 
 Requires a cache store (OAuth state) and a queue worker (webhook handling).
 Any driver works.
@@ -67,12 +67,14 @@ composer require shopgpt/shopify-integration
 
 ```bash
 php artisan vendor:publish --tag=shopifyIntegration-config
-php artisan vendor:publish --tag=shopifyIntegration-migrations
-php artisan migrate
 ```
 
 The service provider is auto-discovered. Config lands at
 `config/shopifyIntegration.php`.
+
+**There is no migration to publish.** The package does not own a table — see
+[Storage](#storage-the-table-is-yours) for the one thing you do have to set
+up.
 
 ```env
 SHOPIFY_CLIENT_ID=your_api_key
@@ -100,13 +102,18 @@ environment; the rest are edited in the config file.
 | `scopes` | `SHOPIFY_SCOPES` | `write_products` | Comma-separated. Changing this forces re-auth |
 | `debug` | `SHOPIFY_DEBUG` | `false` | Skips HMAC verification on the OAuth routes. Local only |
 | `embedded.enabled` | `SHOPIFY_EMBEDDED` | `false` | Runs inside the Shopify Admin iframe |
-| `model` | — | `Integration::class` | Point at your own subclass to add relations |
+| `store.repository` | — | `EloquentStoreRepository::class` | Every read and write. Override to own the INSERT |
+| `store.model` | — | `Integration::class` | The Eloquent model the default repository uses |
+| `store.table` | `SHOPIFY_STORE_TABLE` | `integrations` | Only used by the shipped default model |
+| `store.columns` | — | `[]` | Logical field => your column name. See [Storage](#storage-the-table-is-yours) |
+| `store.platform` | — | `shopify` | Written to, and scoped by, the `platform` column when mapped |
+| `store.encrypt_tokens` | `SHOPIFY_ENCRYPT_TOKENS` | `false` | Encrypt tokens at rest. Off: your model may already |
+| `store.pii` | — | 4 fields | Logical fields a `shop/redact` clears |
 | `oauth.state_store` | — | `cache` | `cache` or `session`. Keep `cache` if embedded |
 | `oauth.state_ttl` | — | `300` | Seconds a pending install stays valid |
 | `oauth.hmac_ttl` | — | `300` | Seconds a signed Shopify request stays acceptable. `0` checks the signature only |
 | `oauth.listing_url` | `SHOPIFY_LISTING_URL` | `null` | Where to send someone who hits the install URL with no `shop` |
 | `tokens.refresh_buffer` | — | `300` | Refresh this many seconds before expiry |
-| `tokens.encrypt` | — | `true` | Encrypt tokens at rest with your app key |
 | `routes.enabled` | — | `true` | Set `false` to register the routes yourself |
 | `routes.prefix` | — | `shopify` | URL prefix for the package's routes |
 | `routes.middleware` | — | `['web']` | Applied to the OAuth routes |
@@ -123,53 +130,132 @@ Everything without an env var is edited in `config/shopifyIntegration.php`
 directly. Add your own env keys there if you want them environment-driven:
 
 ```php
-'tokens' => [
-    'encrypt' => env('SHOPIFY_ENCRYPT_TOKENS', true),
+'oauth' => [
+    'state_ttl' => env('SHOPIFY_STATE_TTL', 300),
 ],
 ```
 
 ---
 
-## The integrations table
+## Storage: the table is yours
 
-One row per connected store. Every column the package owns is prefixed
-`integration_`, so the table can hold other platforms alongside Shopify.
+The package ships no migration, defines no columns, and never assumes what a
+store row looks like beyond six facts it cannot work without. Everything it
+reads or writes goes through two interfaces.
 
-The migration is **additive**: it creates `integrations` if you do not have
-one, and adds only the missing columns if you do.
+**`ShopifyStore`** — one connected store, as the package needs to read it:
 
-| Column | Type | Holds |
-| --- | --- | --- |
-| `id` | id | |
-| `user_id` | foreignId, nullable | Yours to use; the package never writes it |
-| `integration_platform` | string | Always `shopify` for these rows |
-| `integration_external_id` | string | Shopify's numeric shop id — survives a rename |
-| `integration_store_domain` | string | `acme.myshopify.com` |
-| `integration_domain` | string | The custom domain, e.g. `acme.com` |
-| `integration_access_token` | text | Encrypted at rest |
-| `integration_refresh_token` | text | Encrypted at rest |
-| `integration_token_expires_at` | timestamp | Null means a legacy permanent token |
-| `integration_scopes` | string | What Shopify actually granted |
-| `integration_installed_at` | timestamp | |
-| `integration_uninstalled_at` | timestamp | Null means installed |
-| `integration_name` | string | Shop profile |
-| `integration_email` | string | Shop profile |
-| `integration_shop_owner` | string | Shop profile |
-| `integration_phone` | string | Shop profile |
-| `integration_currency` | string | Shop profile |
-| `integration_country_code` | string | Shop profile |
-| `integration_country_name` | string | Shop profile |
-| `integration_primary_locale` | string | Shop profile |
-| `integration_plan_name` | string | Shop profile |
-| `integration_weight_unit` | string | Shop profile |
-| `integration_password_enabled` | boolean | Shop profile |
-| `integration_shop_data` | json | The whole `shop.json` payload |
-| `integration_shop_data_synced_at` | timestamp | |
-| `integration_metadata` | json | Yours. The package never writes it |
-| `created_at` / `updated_at` | timestamps | |
+```php
+public function getKey();
+public function shopifyDomain(): string;
+public function shopifyExternalId(): ?string;
+public function shopifyAccessToken(): ?string;
+public function shopifyRefreshToken(): ?string;
+public function shopifyTokenExpiresAt(): ?DateTimeInterface;
+public function shopifyScopes(): ?string;
+public function shopifyIsInstalled(): bool;
+```
 
-Columns are addressed **without** the prefix in code — `$store->access_token`,
-not `$store->integration_access_token`.
+**`ShopifyStoreRepository`** — every read and write, including the INSERT.
+
+### The short version
+
+Add the trait to the model you already have, and tell the package what your
+columns are called:
+
+```php
+use ShopGPT\ShopifyIntegration\Concerns\InteractsWithShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+
+class Integration extends Model implements ShopifyStore
+{
+    use InteractsWithShopifyStore;
+}
+```
+
+```php
+// config/shopifyIntegration.php
+'store' => [
+    'model'   => App\Models\Integration::class,
+    'columns' => [
+        'store_domain' => 'domain',
+        'access_token' => 'token',
+        'external_id'  => 'integration_id',
+        'platform'     => 'type',
+    ],
+],
+```
+
+Anything you omit defaults to its own name. Map a field to `null` and the
+package stops writing it — the value still reaches your listeners on the
+events, it just is not persisted. Only `store_domain` and `access_token` are
+genuinely required.
+
+Your migration, your column names, your indexes, your encryption.
+
+### When the INSERT needs something the package cannot know
+
+A store table often has a column Shopify has no opinion about — an owning user,
+a tenant, a plan — and it is often `NOT NULL`. The package fires
+`StoreInstalled` **after** the row is written, which is too late to fill one.
+
+The repository is the seam. Extend the shipped one and override a single
+method:
+
+```php
+class AppStoreRepository extends EloquentStoreRepository
+{
+    protected function newStore(string $shop, array $shopData): Model
+    {
+        $store = parent::newStore($shop, $shopData);
+
+        $store->user_id = Auth::id()
+            ?? User::firstOrCreate(['email' => $shopData['email']], [...])->id;
+
+        return $store;
+    }
+}
+```
+
+```php
+'store' => ['repository' => App\Repositories\AppStoreRepository::class],
+```
+
+`newStore()` runs before anything is saved, with the full `shop.json` in hand,
+so a required column stays required. Nothing else about the package changes:
+token refresh, the API client, the middleware and the webhook handlers all keep
+working, because they talk to the interfaces rather than to columns.
+
+For total control — a different ORM, a remote service, an existing service
+layer — implement `ShopifyStoreRepository` yourself and bind it.
+
+### Fields the package will use if you give it a column
+
+`platform`, `external_id`, `store_domain`, `access_token`, `refresh_token`,
+`token_expires_at`, `scopes`, `installed_at`, `uninstalled_at` — and, for the
+profile promoted out of `shop.json`: `domain`, `name`, `email`, `shop_owner`,
+`phone`, `currency`, `country_code`, `country_name`, `primary_locale`,
+`plan_name`, `weight_unit`, `password_enabled`, `shop_data`,
+`shop_data_synced_at`.
+
+Two are worth knowing about:
+
+- **`uninstalled_at`** is how the package tells an installed store from a
+  removed one. With no such column every store reads as installed; if you track
+  that with a boolean instead, map it to `null` and override
+  `shopifyIsInstalled()`.
+- **`token_expires_at`** null means a legacy permanent token, which is valid
+  and never refreshed.
+
+### Token encryption
+
+Off by default, because storage is your business and a model that already casts
+its token column would otherwise be encrypted twice. Turn it on only when
+nothing else is:
+
+```php
+'store' => ['encrypt_tokens' => true],
+```
 
 ---
 
@@ -244,16 +330,40 @@ return redirect(ShopifyIntegration::installUrl('acme.myshopify.com'));
 
 ```php
 Event::listen(StoreInstalled::class, function (StoreInstalled $event) {
-    $user = User::firstOrCreate(
-        ['email' => $event->context->uniqueEmail('your-app.com',
-            fn ($email) => User::where('email', $email)->exists())],
-        ['name' => $event->context->shopOwner()],
-    );
-
-    $event->store->update(['user_id' => $user->id]);
-
-    Auth::login($user);
+    Auth::login($event->store->user);
 });
+```
+
+The user itself is resolved in your repository, not here — the row is already
+written by the time this event fires, so a `NOT NULL user_id` has to be filled
+before it:
+
+```php
+class AppStoreRepository extends EloquentStoreRepository
+{
+    protected function newStore(string $shop, array $shopData): Model
+    {
+        $store = parent::newStore($shop, $shopData);
+
+        $store->user_id = User::firstOrCreate(
+            ['email' => $shopData['email']],
+            ['name'  => $shopData['shop_owner'] ?? null],
+        )->id;
+
+        return $store;
+    }
+}
+```
+
+`InstallContext::uniqueEmail()` is there for the case one merchant runs several
+stores and gives Shopify the same contact address on each — a plain unique
+constraint on `users.email` would reject the second one:
+
+```php
+$email = $event->context->uniqueEmail(
+    'your-app.com',
+    fn ($email) => User::where('email', $email)->exists(),
+);
 ```
 
 **4.** Guard your routes:
@@ -319,12 +429,14 @@ class AuthenticateStoreOwner
 }
 ```
 
-The package ships no `user()` relation — it does not know your User model.
-Add one by subclassing, which is what `config.model` is for:
+The package ships no `user()` relation — it does not know your User model, and
+the store model is yours anyway. Put the relation where it belongs:
 
 ```php
-class Store extends \ShopGPT\ShopifyIntegration\Models\Integration
+class Integration extends Model implements ShopifyStore
 {
+    use InteractsWithShopifyStore;
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
@@ -333,8 +445,11 @@ class Store extends \ShopGPT\ShopifyIntegration\Models\Integration
 ```
 
 ```php
-'model' => App\Models\Store::class,
+'store' => ['model' => App\Models\Integration::class],
 ```
+
+Filling `user_id` on a *new* install is the repository's job, not the model's —
+see [Storage](#storage-the-table-is-yours).
 
 ### What `shopifyIntegration.session` answers with
 
@@ -379,27 +494,29 @@ use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `currentStore()` | `?Integration` | The store this request is acting as |
-| `setCurrentStore(?Integration)` | `void` | |
-| `asStore(Integration, callable)` | `mixed` | Runs the callback as that store, then restores |
-| `forDomain(string)` | `?Integration` | Look a store up by `acme.myshopify.com` |
-| `ensureFreshToken(Integration)` | `Integration` | Refreshes if near expiry |
-| `refreshToken(Integration)` | `Integration` | Forces a refresh |
+| `currentStore()` | `?ShopifyStore` | The store this request is acting as |
+| `setCurrentStore(?ShopifyStore)` | `void` | |
+| `asStore(ShopifyStore, callable)` | `mixed` | Runs the callback as that store, then restores |
+| `stores()` | `ShopifyStoreRepository` | Every read and write |
+| `forDomain(string)` | `?ShopifyStore` | Look a store up by `acme.myshopify.com` |
+| `api(ShopifyStore)` | `ApiClient` | Token guaranteed fresh. Works without the trait |
+| `ensureFreshToken(ShopifyStore)` | `ShopifyStore` | Refreshes if near expiry |
+| `refreshToken(ShopifyStore)` | `ShopifyStore` | Forces a refresh |
 | `verifySessionToken(?string)` | `?array` | Claims, or null if invalid |
 | `storeFromClaims(?array)` | `?string` | The shop domain a claims array names |
-| `exchangeToken(string, string)` | `?Integration` | Session token → stored access token |
+| `exchangeToken(string, string)` | `?ShopifyStore` | Session token → stored access token |
 | `installUrl(string)` | `string` | For a "connect your store" button |
 | `redirectUri()` | `string` | The callback URL, for your Partner dashboard |
-| `model()` | `class-string` | The configured model class |
+| `model()` | `class-string` | The configured store model class |
 | `sessionTokenHeaders(…)` | `array` | Test support |
 | `webhookHeaders(…)` | `array` | Test support |
 
 `asStore()` is the guard rail for queued jobs and loops over stores:
 
 ```php
-foreach (Integration::installed()->cursor() as $store) {
+foreach (Integration::query()->installed()->cursor() as $store) {
     ShopifyIntegration::asStore($store, function ($store) {
-        $store->api()->graphql($query);
+        ShopifyIntegration::api($store)->graphql($query);
     });
 }
 ```
@@ -408,35 +525,63 @@ foreach (Integration::installed()->cursor() as $store) {
 
 ## The store model
 
-`ShopGPT\ShopifyIntegration\Models\Integration`. All queries are scoped to
-Shopify rows automatically.
+Lookups and writes go through the repository, not through a model static — the
+model is yours, and the package cannot put methods on it.
+
+```php
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
+
+$stores = app(ShopifyStoreRepository::class);   // or ShopifyIntegration::stores()
+```
 
 | Method | Returns | |
 | --- | --- | --- |
-| `Integration::forDomain($domain)` | `?static` | |
-| `Integration::forExternalId($id)` | `?static` | |
-| `Integration::resolve($externalId, $domain)` | `?static` | Id first, domain second |
-| `Integration::installed()` | scope | |
-| `$store->isInstalled()` | `bool` | |
-| `$store->hasValidToken()` | `bool` | |
-| `$store->tokenExpiresSoon($buffer = null)` | `bool` | |
-| `$store->hasRequiredScopes($required = null)` | `bool` | Against `config.scopes` |
-| `$store->needsReauthorization()` | `bool` | No valid token, or missing scopes |
-| `$store->api()` | `ApiClient` | Token guaranteed fresh |
-| `$store->markUninstalled()` | `void` | |
-| `$store->redact()` | `void` | Clears the PII columns |
+| `$stores->findByDomain($domain)` | `?ShopifyStore` | |
+| `$stores->findByExternalId($id)` | `?ShopifyStore` | |
+| `$stores->findByKey($key)` | `?ShopifyStore` | |
+| `$stores->persistInstall($existing, $shop, $token, $shopData)` | `ShopifyStore` | The INSERT seam |
+| `$stores->updateTokens($store, $token)` | `ShopifyStore` | |
+| `$stores->updateProfile($store, $shopData)` | `array{changed, previous}` | |
+| `$stores->updateScopes($store, $scopes)` | `ShopifyStore` | |
+| `$stores->markUninstalled($store)` | `void` | Drops the credentials too |
+| `$stores->redact($store)` | `void` | Clears the mapped PII fields |
 
-Attributes are read without the `integration_` prefix:
+State questions work on any `ShopifyStore`, wherever it is stored:
 
 ```php
-$store->store_domain;      // acme.myshopify.com
-$store->domain;            // acme.com
-$store->access_token;      // decrypted
-$store->scopes;
-$store->token_expires_at;  // Carbon|null
-$store->shop_data;         // array — the whole shop.json
-$store->plan_name;
+use ShopGPT\ShopifyIntegration\Support\StoreState;
+
+StoreState::hasValidToken($store);
+StoreState::tokenExpiresSoon($store, $buffer = null);
+StoreState::hasRequiredScopes($store, $required = null);   // against config.scopes
+StoreState::needsReauthorization($store);                  // no token, or missing scopes
 ```
+
+A model using `InteractsWithShopifyStore` gets those as methods, plus an
+`installed()` query scope and `$store->api()` with the token guaranteed fresh:
+
+```php
+$store->isInstalled();
+$store->hasValidToken();
+$store->hasRequiredScopes();
+$store->needsReauthorization();
+$store->api();
+
+Integration::query()->installed()->get();
+```
+
+Read the six facts through the contract when you want to be storage-agnostic —
+in a listener that any app might wire up, say:
+
+```php
+$store->shopifyDomain();          // acme.myshopify.com
+$store->shopifyAccessToken();     // decrypted
+$store->shopifyScopes();
+$store->shopifyTokenExpiresAt();  // DateTimeInterface|null
+```
+
+Everything else — `$store->plan_name`, your relations, your accessors — is your
+model's own business, exactly as it was before.
 
 ---
 
@@ -512,7 +657,7 @@ these.
 | `StoreTokenRefreshed` | A token was refreshed | `$store` |
 | `TokenRefreshFailed` | A refresh failed | `$store`, `$reason`, `$fatal` |
 | `StoreScopesUpdated` | `app/scopes_update` arrived | `$store`, `$previous`, `$current` |
-| `StoreProfileUpdated` | `shop/update` refreshed the profile | `$store`, `$changed`, `$previousPlan` |
+| `StoreProfileUpdated` | `shop/update` refreshed the profile | `$store`, `$changed`, `$previousPlan`, `$currentPlan` |
 | `StoreRenamed` | The myshopify domain changed | `$store`, `$previousDomain`, `$currentDomain` |
 | `StoreUninstalled` | The webhook or a 401 said so | `$store` |
 
@@ -524,8 +669,8 @@ $event->gained();   // ['write_products']
 $event->lost();     // ['read_orders'] — calls needing these now 403
 
 // StoreProfileUpdated — the one that matters for billing
-$event->planChanged();    // left a development plan?
-$event->previousPlan;
+$event->planChanged();    // the plan is not what it was — dev store went live?
+$event->previousPlan;     // and $event->currentPlan
 
 // TokenRefreshFailed — false means the current token is still usable and
 // the next call retries; true means the merchant must re-authorise
@@ -535,7 +680,7 @@ $event->fatal;
 `$context` is an `InstallContext`:
 
 ```php
-$context->store;              // Integration
+$context->store;              // ShopifyStore
 $context->shopData;           // array — raw shop.json
 $context->isNewInstall;       // bool
 $context->isReinstall;        // bool
@@ -547,7 +692,7 @@ $context->domain();           // acme.myshopify.com
 $context->shopOwner();
 $context->email();
 $context->currency();
-$context->profile();          // the 11 promoted columns as an array
+$context->profile();          // the 11 profile fields, read from shop.json
 $context->isDevelopmentStore();
 $context->uniqueEmail($fallbackDomain, $isTaken);
 ```
@@ -604,7 +749,7 @@ class YourHandler extends WebhookJob
 {
     public function handle(): void
     {
-        $this->store;        // Integration, resolved for you
+        $this->store();      // ?ShopifyStore, resolved through your repository
         $this->topic;        // the topic this was registered under
         $this->payload;      // array
         $this->webhookId;    // X-Shopify-Webhook-Id
@@ -626,6 +771,9 @@ protected static function payloadForQueue(array $payload): array
 A busy store can repeat a large resource payload every few seconds, so a job
 that re-fetches the resource anyway should carry only the id. The GDPR topics
 need the full payload, which is why keeping it is the default.
+
+`handle()` is called through the container, so type-hint anything you need —
+including `ShopifyStoreRepository` when the handler has to write to the store.
 
 Webhook **registration** with Shopify is not built yet — declare your topics in
 `shopify.app.toml`:
@@ -649,7 +797,9 @@ Everything here is meant to be overridden from your app.
 | --- | --- |
 | Where a merchant lands after install | `redirects.after_install` — route name, URL, or closure receiving the `InstallContext` |
 | What happens on install | Listen for `StoreInstalled` / `StoreReinstalled` |
-| Add relations to a store | Subclass `Integration`, point `config.model` at it |
+| Use your own store table | `store.columns` + `store.model` — see [Storage](#storage-the-table-is-yours) |
+| Fill a required column on install | Override `newStore()` on `EloquentStoreRepository` |
+| Replace storage entirely | Implement `ShopifyStoreRepository` and bind it |
 | Handle a new webhook topic | Add `topic => YourJob::class` to `webhooks.topics` |
 | Replace a shipped webhook handler | Point that topic at your own job class |
 | What travels the queue for a topic | Override `payloadForQueue()` on your job |
@@ -659,7 +809,8 @@ Everything here is meant to be overridden from your app.
 | Where an unknown visitor goes | `oauth.listing_url` |
 
 The package deliberately has **no** opinion about users, guards, sessions,
-billing or onboarding. If you need one of those, listen for an event.
+billing, onboarding — or your schema. If you need one of those, listen for an
+event or implement the repository.
 
 ---
 
@@ -712,17 +863,77 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
   HMAC-verified query string, but it decides where the merchant lands after an
   embedded install, so it is checked against the two shapes Shopify actually
   sends and otherwise derived from the store domain.
-- **Tokens are encrypted with your `APP_KEY`.** Rotating it without re-encrypting
-  makes every stored token unreadable. Reads fall back to the raw value, so a
-  table holding plaintext tokens keeps working and is encrypted on next write.
-- **`shop/redact` clears the PII columns and `integration_shop_data`.** Anything
+- **Token encryption is off by default.** Storage is your app's, and a model
+  already casting its token column would otherwise be encrypted twice — so
+  check that *something* is encrypting those columns before you ship. With
+  `store.encrypt_tokens` on, the package uses your `APP_KEY`: rotating it
+  without re-encrypting makes every stored token unreadable. Reads fall back
+  to the raw value, so a table holding plaintext tokens keeps working and is
+  encrypted on next write.
+- **`shop/redact` clears the PII fields you mapped, `shop_data` included.** Anything
   you copied onto your own tables is yours to redact.
 
 ---
 
 ## Versioning
 
-Semver. `0.x` while the API settles — require it as `^0.4`.
+Semver. `0.x` while the API settles — require it as `^0.5`.
+
+### `0.5.0`
+
+**The package no longer owns a table.** It shipped a migration and a fixed set
+of `integration_`-prefixed columns; both are gone. Storage is now defined by two
+interfaces, and the shipped Eloquent repository is a default you can replace.
+
+This is the change that lets an app keep a `NOT NULL` owning column — a
+`user_id`, a tenant — on its store table. The package writes the row through
+your repository, so `newStore()` runs before the INSERT with the whole
+`shop.json` in hand.
+
+**Breaking**
+
+- **The migration is removed.** `vendor:publish --tag=shopifyIntegration-migrations`
+  no longer exists. Bring your own table; nothing about its shape is assumed
+  beyond what `store.columns` says.
+- **The `integration_` column prefix is gone.** Column names come from
+  `store.columns`, defaulting to the bare logical name. Existing installs keep
+  their schema by mapping each field to the column it already uses.
+- **`config.model` moved to `store.model`**, and `tokens.encrypt` to
+  `store.encrypt_tokens` — **now `false` by default**, because a model that
+  already casts its token column would otherwise be encrypted twice.
+- **The model's lookups and mutations moved to the repository.**
+  `Integration::forDomain()`, `forExternalId()`, `resolve()`,
+  `markUninstalled()` and `redact()` are now
+  `ShopifyStoreRepository::findByDomain()`, `findByExternalId()`,
+  `markUninstalled()`, `redact()`. `StoreWriter::resolve()` covers the
+  id-then-domain lookup.
+- **Package internals type-hint `ShopifyStore`, not the model.** Events,
+  exceptions, middleware, `InstallContext` and the facade all changed
+  signature. `$store->access_token` becomes `$store->shopifyAccessToken()` in
+  code that must work against any implementation; a model using
+  `InteractsWithShopifyStore` keeps its own attributes as they were.
+- **Platform scoping moved off the model.** It was a global scope; it is now
+  applied by the repository, and only when a `platform` column is mapped.
+- **`InstallContext` profile accessors read `shop.json`, not the store.**
+  `profile()`, `email()`, `shopOwner()`, `currency()` and
+  `isDevelopmentStore()` answer from the payload, so they still work on a
+  table that persists no profile at all.
+- **`StoreProfileUpdated` gained `$currentPlan`.** `planChanged()` compared
+  against a model attribute that is no longer guaranteed to exist.
+- **`WebhookJob::handle()` is resolved through the container.** The shipped
+  handlers type-hint `ShopifyStoreRepository`; calling `handle()` with no
+  arguments in a test now needs `app()->call([$job, 'handle'])`.
+
+**Added**
+
+- **`ShopifyStore`** and **`ShopifyStoreRepository`** contracts.
+- **`InteractsWithShopifyStore`** — satisfies the contract on an Eloquent model
+  through the column map, so an existing model needs one trait and no code.
+- **`EloquentStoreRepository`** — the shipped default. Override `newStore()`
+  to own the INSERT.
+- **`StoreState`** — `hasValidToken()`, `tokenExpiresSoon()`,
+  `hasRequiredScopes()`, `needsReauthorization()` against any `ShopifyStore`.
+- **`ShopifyIntegration::api($store)`** and **`::stores()`**.
 
 ### `0.4.0`
 

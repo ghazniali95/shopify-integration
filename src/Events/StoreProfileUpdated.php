@@ -4,7 +4,7 @@ namespace ShopGPT\ShopifyIntegration\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * A shop/update webhook refreshed the store's profile.
@@ -18,15 +18,16 @@ class StoreProfileUpdated
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public readonly Integration $store,
+        public readonly ShopifyStore $store,
         public readonly array $changed = [],
         public readonly ?string $previousPlan = null,
+        public readonly ?string $currentPlan = null,
     ) {
     }
 
     public function planChanged(): bool
     {
-        return $this->previousPlan !== null
-            && $this->previousPlan !== $this->store->plan_name;
+        return $this->currentPlan !== null
+            && $this->previousPlan !== $this->currentPlan;
     }
 }

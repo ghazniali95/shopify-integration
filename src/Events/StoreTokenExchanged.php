@@ -4,7 +4,7 @@ namespace ShopGPT\ShopifyIntegration\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * An access token was obtained from a session token.
@@ -19,7 +19,7 @@ class StoreTokenExchanged
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public readonly Integration $store,
+        public readonly ShopifyStore $store,
     ) {
     }
 }

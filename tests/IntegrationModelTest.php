@@ -17,8 +17,8 @@ class IntegrationModelTest extends TestCase
         ]);
 
         $this->assertSame('acme.myshopify.com', $store->store_domain);
-        $this->assertSame('acme.myshopify.com', $store->integration_store_domain);
-        $this->assertSame('acme.myshopify.com', DB::table('integrations')->value('integration_store_domain'));
+        $this->assertSame('acme.myshopify.com', $store->store_domain);
+        $this->assertSame('acme.myshopify.com', DB::table('integrations')->value('store_domain'));
         $this->assertSame('basic', $store->fresh()->plan_name);
     }
 
@@ -26,12 +26,14 @@ class IntegrationModelTest extends TestCase
     public function queries_are_scoped_to_shopify_rows_only(): void
     {
         DB::table('integrations')->insert([
-            ['integration_platform' => 'shopify', 'integration_store_domain' => 'acme.myshopify.com'],
-            ['integration_platform' => 'ecwid',   'integration_store_domain' => 'ecwid-store'],
+            ['platform' => 'shopify', 'store_domain' => 'acme.myshopify.com'],
+            ['platform' => 'ecwid',   'store_domain' => 'ecwid-store'],
         ]);
 
-        $this->assertSame(1, Integration::query()->count());
-        $this->assertNull(Integration::forDomain('ecwid-store'));
+        // Scoping moved off the model and onto the repository with the schema:
+        // the table is the app's, and it may hold whatever else it likes.
+        $this->assertNotNull($this->stores()->findByDomain('acme.myshopify.com'));
+        $this->assertNull($this->stores()->findByDomain('ecwid-store'));
     }
 
     #[Test]
@@ -39,7 +41,7 @@ class IntegrationModelTest extends TestCase
     {
         $store = Integration::query()->create(['store_domain' => 'acme.myshopify.com']);
 
-        $this->assertSame('shopify', $store->fresh()->integration_platform);
+        $this->assertSame('shopify', $store->fresh()->platform);
     }
 
     #[Test]
@@ -53,7 +55,7 @@ class IntegrationModelTest extends TestCase
         $json = $store->toJson();
 
         $this->assertStringNotContainsString('shpat_secret', $json);
-        $this->assertArrayNotHasKey('integration_access_token', $store->toArray());
+        $this->assertArrayNotHasKey('access_token', $store->toArray());
     }
 
     #[Test]
@@ -64,7 +66,7 @@ class IntegrationModelTest extends TestCase
         $this->assertTrue($store->isInstalled());
         $this->assertSame(1, Integration::query()->installed()->count());
 
-        $store->markUninstalled();
+        $this->stores()->markUninstalled($store);
 
         $this->assertFalse($store->fresh()->isInstalled());
         $this->assertSame(0, Integration::query()->installed()->count());
@@ -85,7 +87,7 @@ class IntegrationModelTest extends TestCase
             'token_expires_at' => now()->addDay(),
         ]);
 
-        $store->markUninstalled();
+        $this->stores()->markUninstalled($store);
 
         $fresh = $store->fresh();
 
@@ -127,7 +129,7 @@ class IntegrationModelTest extends TestCase
             'access_token' => 'shpat_secret',
         ]);
 
-        $store->redact();
+        $this->stores()->redact($store);
         $store = $store->fresh();
 
         $this->assertNull($store->email);

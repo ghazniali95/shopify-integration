@@ -21,9 +21,9 @@ class LifecycleEventsTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_token',
-            'integration_scopes'       => 'read_products',
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_token',
+            'scopes'       => 'read_products',
         ], $attributes));
     }
 
@@ -43,7 +43,7 @@ class LifecycleEventsTest extends TestCase
     {
         Event::fake([StoreRenamed::class]);
 
-        $this->store(['integration_external_id' => '555']);
+        $this->store(['external_id' => '555']);
 
         app(StoreWriter::class)->write(
             'acme-new.myshopify.com',
@@ -64,7 +64,7 @@ class LifecycleEventsTest extends TestCase
     {
         Event::fake([StoreRenamed::class]);
 
-        $this->store(['integration_external_id' => '555']);
+        $this->store(['external_id' => '555']);
 
         app(StoreWriter::class)->write(
             self::SHOP,
@@ -104,18 +104,18 @@ class LifecycleEventsTest extends TestCase
     {
         Event::fake([StoreProfileUpdated::class]);
 
-        $store = $this->store(['integration_plan_name' => 'partner_test']);
+        $store = $this->store(['plan_name' => 'partner_test']);
 
-        (new HandleShopUpdate($store->id, 'shop/update', [
+        app()->call([new HandleShopUpdate($store->id, 'shop/update', [
             'id'        => 555,
             'plan_name' => 'basic',
-        ]))->handle(app(StoreWriter::class));
+        ]), 'handle']);
 
         Event::assertDispatched(StoreProfileUpdated::class, function (StoreProfileUpdated $event) {
             return $event->planChanged()
                 && $event->previousPlan === 'partner_test'
                 && $event->store->plan_name === 'basic'
-                && in_array('integration_plan_name', $event->changed, true);
+                && in_array('plan_name', $event->changed, true);
         });
     }
 
@@ -124,13 +124,13 @@ class LifecycleEventsTest extends TestCase
     {
         Event::fake([StoreProfileUpdated::class]);
 
-        $store = $this->store(['integration_plan_name' => 'basic']);
+        $store = $this->store(['plan_name' => 'basic']);
 
-        (new HandleShopUpdate($store->id, 'shop/update', [
+        app()->call([new HandleShopUpdate($store->id, 'shop/update', [
             'id'        => 555,
             'plan_name' => 'basic',
             'phone'     => '+15550001',
-        ]))->handle(app(StoreWriter::class));
+        ]), 'handle']);
 
         Event::assertDispatched(StoreProfileUpdated::class, fn ($e) => ! $e->planChanged());
     }
@@ -153,8 +153,8 @@ class LifecycleEventsTest extends TestCase
         Http::fake(['*/admin/oauth/access_token' => Http::response([], 500)]);
 
         $store = $this->store([
-            'integration_refresh_token'    => 'shprt_old',
-            'integration_token_expires_at' => now()->addMinutes(2),
+            'refresh_token'    => 'shprt_old',
+            'token_expires_at' => now()->addMinutes(2),
         ]);
 
         app(TokenService::class)->refresh($store);
@@ -169,8 +169,8 @@ class LifecycleEventsTest extends TestCase
         Http::fake(['*/admin/oauth/access_token' => Http::response([], 400)]);
 
         $store = $this->store([
-            'integration_refresh_token'    => 'shprt_old',
-            'integration_token_expires_at' => now()->subHour(),
+            'refresh_token'    => 'shprt_old',
+            'token_expires_at' => now()->subHour(),
         ]);
 
         $this->expectException(TokenRefreshException::class);

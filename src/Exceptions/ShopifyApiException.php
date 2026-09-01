@@ -2,12 +2,12 @@
 
 namespace ShopGPT\ShopifyIntegration\Exceptions;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 class ShopifyApiException extends ShopifyIntegrationException
 {
     public function __construct(
-        public readonly Integration $store,
+        public readonly ShopifyStore $store,
         string $message,
         int $code = 0,
         public readonly ?string $body = null,

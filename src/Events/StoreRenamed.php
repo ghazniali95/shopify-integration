@@ -4,7 +4,7 @@ namespace ShopGPT\ShopifyIntegration\Events;
 
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * A store's myshopify domain changed.
@@ -19,7 +19,7 @@ class StoreRenamed
     use Dispatchable, SerializesModels;
 
     public function __construct(
-        public readonly Integration $store,
+        public readonly ShopifyStore $store,
         public readonly string $previousDomain,
         public readonly string $currentDomain,
     ) {

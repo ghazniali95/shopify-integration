@@ -15,10 +15,10 @@ class TokenServiceTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain'     => 'acme.myshopify.com',
-            'integration_access_token'     => 'shpat_current',
-            'integration_refresh_token'    => 'shprt_current',
-            'integration_token_expires_at' => now()->addDay(),
+            'store_domain'     => 'acme.myshopify.com',
+            'access_token'     => 'shpat_current',
+            'refresh_token'    => 'shprt_current',
+            'token_expires_at' => now()->addDay(),
         ], $attributes));
     }
 
@@ -43,7 +43,7 @@ class TokenServiceTest extends TestCase
     {
         Http::fake();
 
-        $store = $this->service()->ensureFresh($this->store(['integration_token_expires_at' => null]));
+        $store = $this->service()->ensureFresh($this->store(['token_expires_at' => null]));
 
         Http::assertNothingSent();
         $this->assertSame('shpat_current', $store->access_token);
@@ -61,7 +61,7 @@ class TokenServiceTest extends TestCase
 
         // refresh_buffer is 300s, so 60s of life left must trigger a refresh.
         $store = $this->service()->ensureFresh($this->store([
-            'integration_token_expires_at' => now()->addSeconds(60),
+            'token_expires_at' => now()->addSeconds(60),
         ]));
 
         $this->assertSame('shpat_rotated', $store->access_token);
@@ -80,7 +80,7 @@ class TokenServiceTest extends TestCase
         Http::fake(['*/admin/oauth/access_token' => Http::response('', 500)]);
 
         $store = $this->service()->ensureFresh($this->store([
-            'integration_token_expires_at' => now()->addSeconds(60),
+            'token_expires_at' => now()->addSeconds(60),
         ]));
 
         $this->assertSame('shpat_current', $store->access_token);
@@ -95,7 +95,7 @@ class TokenServiceTest extends TestCase
         $this->expectException(TokenRefreshException::class);
 
         $this->service()->ensureFresh($this->store([
-            'integration_token_expires_at' => now()->subMinute(),
+            'token_expires_at' => now()->subMinute(),
         ]));
     }
 
@@ -107,8 +107,8 @@ class TokenServiceTest extends TestCase
         $this->expectException(TokenRefreshException::class);
 
         $this->service()->ensureFresh($this->store([
-            'integration_refresh_token'    => null,
-            'integration_token_expires_at' => now()->subMinute(),
+            'refresh_token'    => null,
+            'token_expires_at' => now()->subMinute(),
         ]));
     }
 
@@ -153,8 +153,8 @@ class TokenServiceTest extends TestCase
         ]);
 
         $store = $this->store([
-            'integration_refresh_token'    => 'shprt_original',
-            'integration_token_expires_at' => now()->addSeconds(30),
+            'refresh_token'    => 'shprt_original',
+            'token_expires_at' => now()->addSeconds(30),
         ]);
 
         $service = app(TokenService::class);
@@ -180,15 +180,15 @@ class TokenServiceTest extends TestCase
         ]);
 
         $store   = $this->store([
-            'integration_refresh_token'    => 'shprt_original',
-            'integration_token_expires_at' => now()->addSeconds(30),
+            'refresh_token'    => 'shprt_original',
+            'token_expires_at' => now()->addSeconds(30),
         ]);
         $service = app(TokenService::class);
 
         $service->refresh($store);
 
         // Expired again, as it would be an hour later.
-        $store->forceFill(['integration_token_expires_at' => now()->subMinute()])->saveQuietly();
+        $store->forceFill(['token_expires_at' => now()->subMinute()])->saveQuietly();
 
         $service->refresh($store);
 

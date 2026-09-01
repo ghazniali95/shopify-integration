@@ -2,7 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Exceptions;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * The store exists and the token is fine, but Shopify will not serve it right

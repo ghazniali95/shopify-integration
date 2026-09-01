@@ -2,8 +2,10 @@
 
 namespace ShopGPT\ShopifyIntegration\Http\Middleware\Concerns;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Services\TokenExchangeService;
+use ShopGPT\ShopifyIntegration\Support\StoreState;
 
 trait ResolvesEmbeddedStore
 {
@@ -14,11 +16,9 @@ trait ResolvesEmbeddedStore
      * Returns null only when Shopify itself declines the exchange, which
      * means the app really is not installed for that store.
      */
-    protected function storeFor(string $shop, string $sessionToken): ?Integration
+    protected function storeFor(string $shop, string $sessionToken): ?ShopifyStore
     {
-        $model = config('shopifyIntegration.model', Integration::class);
-
-        $store = $model::forDomain($shop);
+        $store = app(ShopifyStoreRepository::class)->findByDomain($shop);
 
         if ($this->usable($store)) {
             return $store;
@@ -35,14 +35,17 @@ trait ResolvesEmbeddedStore
      * Whether the stored token can still be used or renewed without the
      * merchant being involved.
      */
-    protected function usable(?Integration $store): bool
+    protected function usable(?ShopifyStore $store): bool
     {
-        if (! $store || ! $store->hasValidToken() || ! $store->hasRequiredScopes()) {
+        if (! $store || ! StoreState::hasValidToken($store) || ! StoreState::hasRequiredScopes($store)) {
             return false;
         }
 
         // Expired with nothing to refresh from. TokenService could not renew
         // this, so exchange it now rather than failing at the first API call.
-        return ! ($store->token_expires_at?->isPast() && empty($store->refresh_token));
+        $expiresAt = $store->shopifyTokenExpiresAt();
+        $expired   = $expiresAt !== null && $expiresAt->getTimestamp() <= time();
+
+        return ! ($expired && empty($store->shopifyRefreshToken()));
     }
 }

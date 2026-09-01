@@ -112,9 +112,9 @@ class TokenExchangeTest extends TestCase
     public function an_exchange_for_a_previously_uninstalled_store_is_a_reinstall(): void
     {
         Integration::query()->create([
-            'integration_store_domain'   => self::SHOP,
-            'integration_access_token'   => 'shpat_old',
-            'integration_uninstalled_at' => now()->subDay(),
+            'store_domain'   => self::SHOP,
+            'access_token'   => 'shpat_old',
+            'uninstalled_at' => now()->subDay(),
         ]);
 
         Event::fake([StoreInstalled::class, StoreReinstalled::class]);
@@ -137,9 +137,9 @@ class TokenExchangeTest extends TestCase
     public function re_exchanging_for_an_installed_store_raises_no_install_event(): void
     {
         Integration::query()->create([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_revoked',
-            'integration_installed_at' => now()->subMonth(),
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_revoked',
+            'installed_at' => now()->subMonth(),
         ]);
 
         Event::fake([StoreInstalled::class, StoreReinstalled::class, StoreTokenExchanged::class]);

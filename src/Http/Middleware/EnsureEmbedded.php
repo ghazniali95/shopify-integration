@@ -68,9 +68,7 @@ class EnsureEmbedded
     /** A store good enough to render the page for, without a session token. */
     private function installed(string $shop)
     {
-        $model = config('shopifyIntegration.model', \ShopGPT\ShopifyIntegration\Models\Integration::class);
-
-        $store = $model::forDomain($shop);
+        $store = app(\ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository::class)->findByDomain($shop);
 
         return $this->usable($store) ? $store : null;
     }

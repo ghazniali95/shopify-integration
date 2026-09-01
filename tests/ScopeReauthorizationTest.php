@@ -22,9 +22,9 @@ class ScopeReauthorizationTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_token',
-            'integration_scopes'       => 'write_products',
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_token',
+            'scopes'       => 'write_products',
         ], $attributes));
     }
 
@@ -47,7 +47,7 @@ class ScopeReauthorizationTest extends TestCase
     #[Test]
     public function a_store_missing_a_newly_required_scope_is_sent_back_through_oauth(): void
     {
-        $this->store(['integration_scopes' => 'write_products']);
+        $this->store(['scopes' => 'write_products']);
 
         config(['shopifyIntegration.scopes' => 'write_products,write_files']);
 
@@ -58,7 +58,7 @@ class ScopeReauthorizationTest extends TestCase
     #[Test]
     public function extra_granted_scopes_are_fine(): void
     {
-        $this->store(['integration_scopes' => 'write_products,read_orders,write_files']);
+        $this->store(['scopes' => 'write_products,read_orders,write_files']);
         config(['shopifyIntegration.scopes' => 'write_products']);
 
         $this->get('/protected?shop='.self::SHOP)->assertOk();
@@ -68,7 +68,7 @@ class ScopeReauthorizationTest extends TestCase
     public function an_uninstalled_store_is_sent_back_through_oauth(): void
     {
         config(['shopifyIntegration.scopes' => 'write_products']);
-        $this->store(['integration_uninstalled_at' => now()]);
+        $this->store(['uninstalled_at' => now()]);
 
         $this->get('/protected?shop='.self::SHOP)
             ->assertRedirect('/shopify/auth/begin?shop='.self::SHOP);
@@ -78,7 +78,7 @@ class ScopeReauthorizationTest extends TestCase
     public function a_store_with_no_token_is_sent_back_through_oauth(): void
     {
         config(['shopifyIntegration.scopes' => 'write_products']);
-        $this->store(['integration_access_token' => null]);
+        $this->store(['access_token' => null]);
 
         $this->get('/protected?shop='.self::SHOP)
             ->assertRedirect('/shopify/auth/begin?shop='.self::SHOP);
@@ -98,7 +98,7 @@ class ScopeReauthorizationTest extends TestCase
     #[Test]
     public function an_xhr_gets_json_rather_than_a_redirect(): void
     {
-        $this->store(['integration_scopes' => 'write_products']);
+        $this->store(['scopes' => 'write_products']);
         config(['shopifyIntegration.scopes' => 'write_products,write_files']);
 
         $this->getJson('/protected-json?shop='.self::SHOP)
@@ -121,7 +121,7 @@ class ScopeReauthorizationTest extends TestCase
         $this->assertTrue($healthy->needsReauthorization());
 
         config(['shopifyIntegration.scopes' => 'write_products']);
-        $healthy->markUninstalled();
+        $this->stores()->markUninstalled($healthy);
         $this->assertTrue($healthy->fresh()->needsReauthorization());
     }
 }

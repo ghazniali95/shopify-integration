@@ -26,10 +26,10 @@ class EmbeddedAuthTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_token',
-            'integration_scopes'       => 'write_products',
-            'integration_installed_at' => now()->subMonth(),
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_token',
+            'scopes'       => 'write_products',
+            'installed_at' => now()->subMonth(),
         ], $attributes));
     }
 
@@ -154,7 +154,7 @@ class EmbeddedAuthTest extends TestCase
             ->assertOk()
             ->assertJson(['store' => self::SHOP]);
 
-        $store = Integration::forDomain(self::SHOP);
+        $store = $this->stores()->findByDomain(self::SHOP);
 
         $this->assertNotNull($store);
         $this->assertSame('shpat_exchanged', $store->access_token);
@@ -163,22 +163,22 @@ class EmbeddedAuthTest extends TestCase
     #[Test]
     public function a_store_whose_token_was_revoked_recovers_silently(): void
     {
-        $this->store(['integration_access_token' => null]);
+        $this->store(['access_token' => null]);
         $this->fakeExchange();
 
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token()])
             ->getJson('/api/products')
             ->assertOk();
 
-        $this->assertSame('shpat_exchanged', Integration::forDomain(self::SHOP)->access_token);
+        $this->assertSame('shpat_exchanged', $this->stores()->findByDomain(self::SHOP)->access_token);
     }
 
     #[Test]
     public function an_expired_token_with_no_refresh_token_is_exchanged_rather_than_left_to_fail(): void
     {
         $this->store([
-            'integration_token_expires_at' => now()->subHour(),
-            'integration_refresh_token'    => null,
+            'token_expires_at' => now()->subHour(),
+            'refresh_token'    => null,
         ]);
         $this->fakeExchange();
 
@@ -186,7 +186,7 @@ class EmbeddedAuthTest extends TestCase
             ->getJson('/api/products')
             ->assertOk();
 
-        $this->assertSame('shpat_exchanged', Integration::forDomain(self::SHOP)->access_token);
+        $this->assertSame('shpat_exchanged', $this->stores()->findByDomain(self::SHOP)->access_token);
     }
 
     /**
@@ -196,7 +196,7 @@ class EmbeddedAuthTest extends TestCase
     #[Test]
     public function a_scope_upgrade_is_picked_up_by_exchange(): void
     {
-        $this->store(['integration_scopes' => 'write_products']);
+        $this->store(['scopes' => 'write_products']);
 
         config(['shopifyIntegration.scopes' => 'write_products,write_orders']);
 
@@ -213,13 +213,13 @@ class EmbeddedAuthTest extends TestCase
             ->getJson('/api/products')
             ->assertOk();
 
-        $this->assertTrue(Integration::forDomain(self::SHOP)->hasRequiredScopes());
+        $this->assertTrue($this->stores()->findByDomain(self::SHOP)->hasRequiredScopes());
     }
 
     #[Test]
     public function a_scope_upgrade_the_merchant_has_not_granted_falls_back_to_oauth(): void
     {
-        $this->store(['integration_scopes' => 'write_products']);
+        $this->store(['scopes' => 'write_products']);
 
         config(['shopifyIntegration.scopes' => 'write_products,write_orders']);
 

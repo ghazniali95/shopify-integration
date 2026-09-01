@@ -55,15 +55,77 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Model
+    | Storage
     |--------------------------------------------------------------------------
     |
-    | The Eloquent model for a connected store. Point this at a subclass to
-    | add your own relations.
+    | This package ships no migration and owns no table. Your app decides what
+    | a connected store is stored in and what the columns are called; the
+    | settings below are how you say so.
     |
     */
 
-    'model' => ShopGPT\ShopifyIntegration\Models\Integration::class,
+    'store' => [
+
+        /*
+         * Everything the package reads or writes goes through this.
+         *
+         * The default covers an ordinary Eloquent model. Bind your own
+         * implementation of ShopifyStoreRepository — or extend this one and
+         * override newStore() — when the INSERT needs data the package has no
+         * way to know about, such as an owning user id on a NOT NULL column.
+         */
+        'repository' => ShopGPT\ShopifyIntegration\Repositories\EloquentStoreRepository::class,
+
+        /*
+         * The Eloquent model the default repository uses. Point this at the
+         * model you already have; add the InteractsWithShopifyStore trait to
+         * it and implement ShopifyStore, and nothing else has to change.
+         */
+        'model' => ShopGPT\ShopifyIntegration\Models\Integration::class,
+
+        /* Only used by the shipped default model. Your own model knows its own. */
+        'table' => env('SHOPIFY_STORE_TABLE', 'integrations'),
+
+        /*
+         * Logical field => your column name.
+         *
+         * Anything omitted defaults to the logical name. Map a field to null
+         * and the package stops writing it — the value still reaches your
+         * listeners on the events, it just is not persisted.
+         *
+         * Only `store_domain` and `access_token` are genuinely required.
+         *
+         *     'columns' => [
+         *         'store_domain'   => 'domain',
+         *         'access_token'   => 'token',
+         *         'external_id'    => 'integration_id',
+         *         'platform'       => 'type',
+         *         'uninstalled_at' => null,      // not stored
+         *     ],
+         */
+        'columns' => [
+            // 'store_domain' => 'domain',
+        ],
+
+        /*
+         * Written to the `platform` column, when one is mapped, and used to
+         * scope every query — so one table can hold several platforms.
+         */
+        'platform' => 'shopify',
+
+        /*
+         * Encrypt tokens at rest with the app key.
+         *
+         * Off by default: storage is the app's business, and a model that
+         * already casts its token column would end up double-encrypted. Turn
+         * it on only when nothing else is encrypting those columns.
+         */
+        'encrypt_tokens' => env('SHOPIFY_ENCRYPT_TOKENS', false),
+
+        /* Logical fields a shop/redact webhook clears. Unmapped ones are skipped. */
+        'pii' => ['email', 'phone', 'shop_owner', 'shop_data'],
+
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -109,13 +171,6 @@ return [
     'tokens' => [
         // Refresh this many seconds before the token actually expires.
         'refresh_buffer' => 300,
-
-        /*
-         * Encrypt tokens at rest with the app key. Reads always fall back to
-         * the raw value, so a table holding plaintext tokens keeps working
-         * and is re-encrypted the next time the token is written.
-         */
-        'encrypt' => true,
     ],
 
     /*

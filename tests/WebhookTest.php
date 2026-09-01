@@ -17,8 +17,8 @@ class WebhookTest extends TestCase
     private function store(array $attributes = []): Integration
     {
         return Integration::query()->create(array_merge([
-            'integration_store_domain' => self::SHOP,
-            'integration_access_token' => 'shpat_token',
+            'store_domain' => self::SHOP,
+            'access_token' => 'shpat_token',
         ], $attributes));
     }
 
@@ -127,7 +127,7 @@ class WebhookTest extends TestCase
         Event::fake([StoreUninstalled::class]);
         $store = $this->store();
 
-        (new HandleAppUninstalled($store->getKey(), 'app/uninstalled', ['id' => 1]))->handle();
+        app()->call([new HandleAppUninstalled($store->getKey(), 'app/uninstalled', ['id' => 1]), 'handle']);
 
         $this->assertFalse($store->fresh()->isInstalled());
         Event::assertDispatched(StoreUninstalled::class);
@@ -137,9 +137,9 @@ class WebhookTest extends TestCase
     public function uninstall_is_idempotent(): void
     {
         Event::fake([StoreUninstalled::class]);
-        $store = $this->store(['integration_uninstalled_at' => now()->subDay()]);
+        $store = $this->store(['uninstalled_at' => now()->subDay()]);
 
-        (new HandleAppUninstalled($store->getKey(), 'app/uninstalled', ['id' => 1]))->handle();
+        app()->call([new HandleAppUninstalled($store->getKey(), 'app/uninstalled', ['id' => 1]), 'handle']);
 
         Event::assertNotDispatched(StoreUninstalled::class);
     }
@@ -149,13 +149,13 @@ class WebhookTest extends TestCase
     public function shop_redact_clears_pii_in_both_places(): void
     {
         $store = $this->store([
-            'integration_email'      => 'owner@acme.test',
-            'integration_phone'      => '+15550000',
-            'integration_shop_owner' => 'Dana Acme',
-            'integration_shop_data'  => json_encode(['email' => 'owner@acme.test', 'zip' => '90210']),
+            'email'      => 'owner@acme.test',
+            'phone'      => '+15550000',
+            'shop_owner' => 'Dana Acme',
+            'shop_data'  => json_encode(['email' => 'owner@acme.test', 'zip' => '90210']),
         ]);
 
-        (new HandleShopRedact($store->getKey(), 'shop/redact', []))->handle();
+        app()->call([new HandleShopRedact($store->getKey(), 'shop/redact', []), 'handle']);
 
         $store = $store->fresh();
         $this->assertNull($store->email);
@@ -167,13 +167,13 @@ class WebhookTest extends TestCase
     #[Test]
     public function shop_update_refreshes_the_promoted_profile(): void
     {
-        $store = $this->store(['integration_plan_name' => 'partner_test']);
+        $store = $this->store(['plan_name' => 'partner_test']);
 
-        (new \ShopGPT\ShopifyIntegration\Jobs\HandleShopUpdate($store->getKey(), 'shop/update', [
+        app()->call([new \ShopGPT\ShopifyIntegration\Jobs\HandleShopUpdate($store->getKey(), 'shop/update', [
             'id'        => 1,
             'plan_name' => 'basic',
             'currency'  => 'EUR',
-        ]))->handle(app(\ShopGPT\ShopifyIntegration\Services\StoreWriter::class));
+        ]), 'handle']);
 
         $store = $store->fresh();
         $this->assertSame('basic', $store->plan_name);

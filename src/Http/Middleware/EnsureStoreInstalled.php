@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;
 use ShopGPT\ShopifyIntegration\Support\ShopDomain;
+use ShopGPT\ShopifyIntegration\Support\StoreState;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -25,12 +26,12 @@ class EnsureStoreInstalled
         $store = ShopifyIntegration::currentStore()
             ?? $this->fromRequest($request);
 
-        if (! $store || ! $store->isInstalled() || ! $store->hasValidToken()) {
-            return $this->reauthorize($request, $store?->store_domain);
+        if (! $store || ! $store->shopifyIsInstalled() || ! StoreState::hasValidToken($store)) {
+            return $this->reauthorize($request, $store?->shopifyDomain());
         }
 
-        if (! $store->hasRequiredScopes()) {
-            return $this->reauthorize($request, $store->store_domain);
+        if (! StoreState::hasRequiredScopes($store)) {
+            return $this->reauthorize($request, $store->shopifyDomain());
         }
 
         ShopifyIntegration::setCurrentStore($store);

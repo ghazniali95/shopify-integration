@@ -2,7 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Exceptions;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 /**
  * The merchant removed the app. Distinct from a store being frozen or locked,
@@ -10,7 +10,7 @@ use ShopGPT\ShopifyIntegration\Models\Integration;
  */
 class StoreUninstalledException extends ShopifyIntegrationException
 {
-    public function __construct(public readonly Integration $store)
+    public function __construct(public readonly ShopifyStore $store)
     {
         parent::__construct("Shopify app is no longer installed on {$store->store_domain}.", 401);
     }

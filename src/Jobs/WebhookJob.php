@@ -7,7 +7,8 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 
 /**
  * Base class for every webhook handler.
@@ -20,7 +21,7 @@ abstract class WebhookJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(
-        public readonly int $storeId,
+        public readonly int|string $storeId,
         public readonly string $topic,
         public readonly array $payload = [],
         public readonly ?string $webhookId = null,
@@ -41,7 +42,7 @@ abstract class WebhookJob implements ShouldQueue
      *         return ['id' => $payload['id'] ?? null];
      *     }
      */
-    public static function fromWebhook(int $storeId, string $topic, array $payload, ?string $webhookId): static
+    public static function fromWebhook(int|string $storeId, string $topic, array $payload, ?string $webhookId): static
     {
         return new static($storeId, $topic, static::payloadForQueue($payload), $webhookId);
     }
@@ -54,11 +55,9 @@ abstract class WebhookJob implements ShouldQueue
     /**
      * The store this webhook belongs to, or null if it has since been deleted.
      */
-    public function store(): ?Integration
+    public function store(): ?ShopifyStore
     {
-        $model = config('shopifyIntegration.model', Integration::class);
-
-        return $model::query()->find($this->storeId);
+        return app(ShopifyStoreRepository::class)->findByKey($this->storeId);
     }
 
     /** The resource the webhook is about, when the payload carries one. */

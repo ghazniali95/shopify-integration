@@ -9,6 +9,8 @@ use ShopGPT\ShopifyIntegration\Http\Middleware\EnsureEmbedded;
 use ShopGPT\ShopifyIntegration\Http\Middleware\EnsureStoreInstalled;
 use ShopGPT\ShopifyIntegration\Http\Middleware\VerifySessionToken;
 use ShopGPT\ShopifyIntegration\Http\Middleware\VerifyShopifyHmac;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
+use ShopGPT\ShopifyIntegration\Repositories\EloquentStoreRepository;
 use ShopGPT\ShopifyIntegration\Services\OAuthService;
 use ShopGPT\ShopifyIntegration\Services\SessionTokenService;
 use ShopGPT\ShopifyIntegration\Services\StoreWriter;
@@ -20,6 +22,12 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/shopifyIntegration.php', 'shopifyIntegration');
+
+        $this->app->singleton(ShopifyStoreRepository::class, function ($app) {
+            $repository = config('shopifyIntegration.store.repository', EloquentStoreRepository::class);
+
+            return $app->make($repository);
+        });
 
         $this->app->singleton(OAuthService::class);
         $this->app->singleton(TokenService::class);
@@ -34,10 +42,6 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__.'/../config/shopifyIntegration.php' => config_path('shopifyIntegration.php'),
         ], 'shopifyIntegration-config');
-
-        $this->publishes([
-            __DIR__.'/../database/migrations' => database_path('migrations'),
-        ], 'shopifyIntegration-migrations');
 
         /** @var Router $router */
         $router = $this->app['router'];

@@ -8,7 +8,8 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use ShopGPT\ShopifyIntegration\Jobs\WebhookJob;
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Support\Hmac;
 
 class WebhookController extends Controller
@@ -105,15 +106,13 @@ class WebhookController extends Controller
         return ! Cache::add($key, true, now()->addMinutes(10));
     }
 
-    private function resolveStore(string $shopDomain): ?Integration
+    private function resolveStore(string $shopDomain): ?ShopifyStore
     {
         if ($shopDomain === '') {
             return null;
         }
 
-        $model = config('shopifyIntegration.model', Integration::class);
-
-        return $model::forDomain($shopDomain);
+        return app(ShopifyStoreRepository::class)->findByDomain($shopDomain);
     }
 
     /** @return class-string<WebhookJob>|null */

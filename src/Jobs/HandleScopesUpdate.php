@@ -2,6 +2,7 @@
 
 namespace ShopGPT\ShopifyIntegration\Jobs;
 
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
 use ShopGPT\ShopifyIntegration\Events\StoreScopesUpdated;
 
 /**
@@ -15,7 +16,7 @@ use ShopGPT\ShopifyIntegration\Events\StoreScopesUpdated;
  */
 class HandleScopesUpdate extends WebhookJob
 {
-    public function handle(): void
+    public function handle(ShopifyStoreRepository $stores): void
     {
         $store = $this->store();
 
@@ -34,7 +35,7 @@ class HandleScopesUpdate extends WebhookJob
             return;
         }
 
-        $store->forceFill(['integration_scopes' => implode(',', $current)])->saveQuietly();
+        $store = $stores->updateScopes($store, implode(',', $current));
 
         StoreScopesUpdated::dispatch($store, $previous, $current);
     }

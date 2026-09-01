@@ -2,11 +2,11 @@
 
 namespace ShopGPT\ShopifyIntegration\Exceptions;
 
-use ShopGPT\ShopifyIntegration\Models\Integration;
+use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 
 class TokenRefreshException extends ShopifyIntegrationException
 {
-    public function __construct(public readonly Integration $store, string $reason)
+    public function __construct(public readonly ShopifyStore $store, string $reason)
     {
         parent::__construct("Shopify token refresh failed for store {$store->store_domain}: {$reason}");
     }

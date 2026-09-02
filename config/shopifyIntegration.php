@@ -58,9 +58,17 @@ return [
     | Storage
     |--------------------------------------------------------------------------
     |
-    | This package ships no migration and owns no table. Your app decides what
-    | a connected store is stored in and what the columns are called; the
-    | settings below are how you say so.
+    | This package owns no table. Your app decides what a connected store is
+    | stored in and what the columns are called; the settings below are how
+    | you say so.
+    |
+    | Starting from nothing? Publish the starter table and the defaults below
+    | already describe it — no mapping needed:
+    |
+    |     php artisan vendor:publish --tag=shopifyIntegration-migrations
+    |
+    | It is published, never loaded, so an app that already stores integrations
+    | is left alone.
     |
     */
 
@@ -83,7 +91,10 @@ return [
          */
         'model' => ShopGPT\ShopifyIntegration\Models\Integration::class,
 
-        /* Only used by the shipped default model. Your own model knows its own. */
+        /*
+         * Used by the shipped default model and by the published migration.
+         * Your own model knows its own table and ignores this.
+         */
         'table' => env('SHOPIFY_STORE_TABLE', 'integrations'),
 
         /*
@@ -135,15 +146,11 @@ return [
 
     'oauth' => [
         /*
-         * Where the state nonce lives between begin and callback.
-         *
-         * 'cache' (default) keys the nonce by store domain and survives the
-         * third-party-cookie restrictions that break sessions inside the
-         * Shopify Admin iframe. Use 'session' only for a standalone app you
-         * are certain will never be embedded.
+         * How long the state nonce stays valid, in seconds. It lives in the
+         * cache, keyed by store domain — never the session, which the Shopify
+         * Admin iframe drops without warning.
          */
-        'state_store' => 'cache',
-        'state_ttl'   => 300,
+        'state_ttl' => 300,
 
         /*
          * How long a signed Shopify request stays acceptable, in seconds.
@@ -164,23 +171,11 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Tokens
-    |--------------------------------------------------------------------------
-    */
-
-    'tokens' => [
-        // Refresh this many seconds before the token actually expires.
-        'refresh_buffer' => 300,
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Routes
     |--------------------------------------------------------------------------
     */
 
     'routes' => [
-        'enabled'            => true,
         'prefix'             => 'shopify',
         'middleware'         => ['web'],
         'webhook_middleware' => ['api'],
@@ -218,13 +213,6 @@ return [
 
         'queue'       => env('SHOPIFY_WEBHOOK_QUEUE', 'default'),
         'log_channel' => env('SHOPIFY_WEBHOOK_LOG'),
-
-        /*
-         * Drop a redelivery carrying an X-Shopify-Webhook-Id already seen.
-         * Shopify redelivers anything it did not hear a 200 for, so a slow
-         * response would otherwise duplicate the work.
-         */
-        'deduplicate' => true,
     ],
 
     /*

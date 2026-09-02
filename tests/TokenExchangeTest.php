@@ -101,8 +101,9 @@ class TokenExchangeTest extends TestCase
 
         Event::assertDispatched(StoreTokenExchanged::class);
         Event::assertDispatched(StoreInstalled::class, function (StoreInstalled $event) {
-            return $event->context->isNewInstall
-                && $event->context->viaTokenExchange
+            // The event class is the classification now; the context carries
+            // only facts about the install itself.
+            return $event->context->viaTokenExchange
                 && $event->context->domain() === self::SHOP;
         });
         Event::assertNotDispatched(StoreReinstalled::class);

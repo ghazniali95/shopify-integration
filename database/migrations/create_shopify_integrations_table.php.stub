@@ -1,0 +1,96 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * A store table for an app that does not already have one.
+ *
+ * The package owns no table and this migration is not registered — it is
+ * published into your app, becomes your file, and you edit it like any other.
+ * Column names here are the defaults `ColumnMap` assumes, so an app that runs
+ * this needs no `store.columns` mapping at all. Rename anything you like and
+ * map it instead.
+ *
+ * An app that already stores integrations should not publish this. Point
+ * `store.columns` at the table you have.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create($this->table(), function (Blueprint $table) {
+            $table->id();
+
+            /*
+             * Nullable, and no foreign key.
+             *
+             * The row is inserted during the OAuth callback, before any event
+             * fires, so the package has no owner to put here — it does not
+             * know your app has users. Attach one in a StoreInstalled
+             * listener. No constraint because the package must not assume
+             * what your users table is called.
+             */
+            $table->foreignId('user_id')->nullable();
+
+            // Identity.
+            $table->string('platform')->default('shopify');
+            $table->string('external_id')->nullable();
+            $table->string('store_domain')->nullable();
+
+            // Credentials. text, not string: an encrypted token runs well
+            // past 255 characters, and a long scope list can too.
+            $table->text('access_token')->nullable();
+            $table->text('refresh_token')->nullable();
+            $table->timestamp('token_expires_at')->nullable();
+            $table->text('scopes')->nullable();
+
+            // Lifecycle. A null uninstalled_at is what "installed" means.
+            $table->timestamp('installed_at')->nullable();
+            $table->timestamp('uninstalled_at')->nullable();
+
+            // Profile, promoted from shop.json on install and shop/update.
+            // Every one of these is optional — map any you do not want to
+            // null and the package stops writing it.
+            $table->string('domain')->nullable();
+            $table->string('name')->nullable();
+            $table->string('email')->nullable();
+            $table->string('shop_owner')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('currency')->nullable();
+            $table->string('country_code')->nullable();
+            $table->string('country_name')->nullable();
+            $table->string('primary_locale')->nullable();
+            $table->string('plan_name')->nullable();
+            $table->string('weight_unit')->nullable();
+            $table->boolean('password_enabled')->nullable();
+
+            // The whole shop.json payload, for anything not promoted above.
+            $table->json('shop_data')->nullable();
+            $table->timestamp('shop_data_synced_at')->nullable();
+
+            $table->timestamps();
+
+            // One row per store per platform, whichever way it is looked up.
+            // These are what make a reinstall update the existing row rather
+            // than duplicate it.
+            $table->unique(['platform', 'external_id']);
+            $table->unique(['platform', 'store_domain']);
+
+            $table->index(['user_id', 'platform']);
+            $table->index(['platform', 'uninstalled_at']);
+            $table->index('token_expires_at');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists($this->table());
+    }
+
+    private function table(): string
+    {
+        return (string) config('shopifyIntegration.store.table', 'integrations');
+    }
+};

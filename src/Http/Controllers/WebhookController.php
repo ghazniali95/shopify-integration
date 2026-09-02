@@ -95,7 +95,7 @@ class WebhookController extends Controller
      */
     private function isDuplicate(?string $webhookId): bool
     {
-        if (! $webhookId || ! config('shopifyIntegration.webhooks.deduplicate', true)) {
+        if (! $webhookId) {
             return false;
         }
 

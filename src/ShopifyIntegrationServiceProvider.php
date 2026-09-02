@@ -43,6 +43,8 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
             __DIR__.'/../config/shopifyIntegration.php' => config_path('shopifyIntegration.php'),
         ], 'shopifyIntegration-config');
 
+        $this->publishMigration();
+
         /** @var Router $router */
         $router = $this->app['router'];
         $router->aliasMiddleware('shopifyIntegration.hmac', VerifyShopifyHmac::class);
@@ -53,12 +55,38 @@ class ShopifyIntegrationServiceProvider extends ServiceProvider
         $this->registerRoutes();
     }
 
-    private function registerRoutes(): void
+    /**
+     * Offer the starter table to an app that has none.
+     *
+     * Deliberately published rather than loaded: the package owns no table, and
+     * an app that already has one of its own would otherwise get a migration it
+     * never asked for, colliding with the table it already runs.
+     */
+    private function publishMigration(): void
     {
-        if (! config('shopifyIntegration.routes.enabled', true)) {
-            return;
+        $stub = __DIR__.'/../database/migrations/create_shopify_integrations_table.php.stub';
+
+        $this->publishes([
+            $stub => $this->migrationPath('create_shopify_integrations_table'),
+        ], 'shopifyIntegration-migrations');
+    }
+
+    /**
+     * A timestamped name, unless the app already published this migration —
+     * publishing twice must overwrite the existing file rather than leave two
+     * copies of the same CREATE TABLE behind.
+     */
+    private function migrationPath(string $name): string
+    {
+        foreach ((array) glob(database_path('migrations/*_'.$name.'.php')) as $existing) {
+            return $existing;
         }
 
+        return database_path('migrations/'.date('Y_m_d_His').'_'.$name.'.php');
+    }
+
+    private function registerRoutes(): void
+    {
         $prefix = config('shopifyIntegration.routes.prefix', 'shopify');
 
         Route::group([

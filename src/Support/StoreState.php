@@ -13,6 +13,14 @@ use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
  */
 class StoreState
 {
+    /**
+     * Refresh this many seconds before a token actually expires.
+     *
+     * Not configurable: the window only has to outlast one in-flight request,
+     * and a value low enough to matter is a value low enough to break.
+     */
+    private const REFRESH_BUFFER = 300;
+
     public static function hasValidToken(ShopifyStore $store): bool
     {
         return ! empty($store->shopifyAccessToken()) && $store->shopifyIsInstalled();
@@ -29,9 +37,7 @@ class StoreState
             return false;
         }
 
-        $buffer = $bufferSeconds ?? (int) config('shopifyIntegration.tokens.refresh_buffer', 300);
-
-        return $expiresAt->getTimestamp() - $buffer <= time();
+        return $expiresAt->getTimestamp() - ($bufferSeconds ?? self::REFRESH_BUFFER) <= time();
     }
 
     /**
@@ -62,7 +68,7 @@ class StoreState
     }
 
     /** @return array<int, string> */
-    public static function splitScopes(?string $scopes): array
+    private static function splitScopes(?string $scopes): array
     {
         return array_values(array_filter(array_map('trim', explode(',', (string) $scopes))));
     }

@@ -146,7 +146,7 @@ class TokenService
     /**
      * Decide what a failed refresh means for the caller.
      *
-     * Refreshes start refresh_buffer seconds before expiry, so a failure often
+     * Refreshes start five minutes before expiry, so a failure often
      * leaves a token that is still perfectly valid — hand it back and try
      * again on the next call. Once it has actually expired there is nothing
      * usable to return: handing the stale token over would send the caller

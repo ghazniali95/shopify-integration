@@ -98,7 +98,7 @@ class OAuthController extends Controller
             $token    = $this->oauth->exchangeCode($shop, $code);
             $shopData = $this->oauth->fetchShopData($shop, $token['access_token']);
 
-            [$store, $isNew, $isReinstall] = $this->writer->write($shop, $token, $shopData);
+            [$store, , $isReinstall] = $this->writer->write($shop, $token, $shopData);
         } catch (OAuthException $e) {
             return $this->fail($shop, $e->getMessage(), $e);
         } catch (Throwable $e) {
@@ -110,18 +110,18 @@ class OAuthController extends Controller
         $context = new InstallContext(
             store: $store,
             shopData: $shopData,
-            isNewInstall: $isNew,
-            isReinstall: $isReinstall,
             scopes: $token['scope'] ?? null,
             host: $request->query('host'),
         );
 
         // Your listener runs here: create the user, log them in, seed a plan.
+        // Which event fired is what says whether this store is new — the
+        // context carries the facts, not the classification.
         $isReinstall
             ? StoreReinstalled::dispatch($store, $context)
             : StoreInstalled::dispatch($store, $context);
 
-        return $this->redirectAfterInstall($context);
+        return $this->redirectAfterInstall($context, $isReinstall);
     }
 
     /**
@@ -152,7 +152,7 @@ class OAuthController extends Controller
         return $this->to(config('shopifyIntegration.redirects.on_failure', '/'), null);
     }
 
-    private function redirectAfterInstall(InstallContext $context)
+    private function redirectAfterInstall(InstallContext $context, bool $isReinstall = false)
     {
         // An embedded app must land back inside the admin frame, not on your
         // own domain. The callback is a top-level navigation, so redirecting
@@ -166,7 +166,7 @@ class OAuthController extends Controller
             return redirect()->away($this->adminAppUrl($context));
         }
 
-        $target = $context->isReinstall
+        $target = $isReinstall
             ? config('shopifyIntegration.redirects.after_reinstall', '/')
             : config('shopifyIntegration.redirects.after_install', '/');
 

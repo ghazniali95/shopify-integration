@@ -50,7 +50,7 @@ class TokenServiceTest extends TestCase
     }
 
     #[Test]
-    public function a_token_inside_the_refresh_buffer_is_rotated(): void
+    public function a_token_inside_the_refresh_window_is_rotated(): void
     {
         Http::fake(['*/admin/oauth/access_token' => Http::response([
             'access_token'  => 'shpat_rotated',
@@ -59,7 +59,7 @@ class TokenServiceTest extends TestCase
         ])]);
         Event::fake([StoreTokenRefreshed::class]);
 
-        // refresh_buffer is 300s, so 60s of life left must trigger a refresh.
+        // The buffer is 300s, so 60s of life left must trigger a refresh.
         $store = $this->service()->ensureFresh($this->store([
             'token_expires_at' => now()->addSeconds(60),
         ]));

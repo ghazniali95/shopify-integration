@@ -8,10 +8,12 @@ use Illuminate\Support\Str;
 /**
  * The OAuth state nonce, kept in the cache and keyed by store domain.
  *
- * Not the session, by default. An embedded app runs in a third-party iframe
- * where Safari and Chrome's privacy modes drop the session cookie without
- * warning — the state would simply be missing on the callback, and every
- * install would fail with an error that reproduces on nobody's machine.
+ * The cache rather than the session, always. An embedded app runs in a
+ * third-party iframe where Safari and Chrome's privacy modes drop the session
+ * cookie without warning — the state would simply be missing on the callback,
+ * and every install would fail with an error that reproduces on nobody's
+ * machine. A standalone app is served correctly by the cache too, so there is
+ * nothing to choose between.
  */
 class OAuthState
 {
@@ -26,11 +28,7 @@ class OAuthState
         // the same store at once do not overwrite each other. Keyed by shop
         // alone, opening the install in a second tab silently invalidated the
         // first, and that tab's callback failed on a state it had been given.
-        if (self::driver() === 'session') {
-            session()->put(self::key($shop, $state), $state);
-        } else {
-            Cache::put(self::key($shop, $state), $state, self::ttl());
-        }
+        Cache::put(self::key($shop, $state), $state, self::ttl());
 
         return $state;
     }
@@ -41,13 +39,7 @@ class OAuthState
      */
     public static function consume(string $shop, string $state): ?string
     {
-        $key = self::key($shop, $state);
-
-        if (self::driver() === 'session') {
-            return session()->pull($key);
-        }
-
-        return Cache::pull($key);
+        return Cache::pull(self::key($shop, $state));
     }
 
     public static function matches(string $shop, ?string $provided): bool
@@ -70,11 +62,6 @@ class OAuthState
     private static function key(string $shop, string $state): string
     {
         return 'shopifyIntegration:oauth_state:'.$shop.':'.$state;
-    }
-
-    private static function driver(): string
-    {
-        return config('shopifyIntegration.oauth.state_store', 'cache');
     }
 
     private static function ttl(): int

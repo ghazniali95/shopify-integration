@@ -20,7 +20,6 @@ use Illuminate\Support\Facades\Facade;
  * @method static array webhookHeaders(string $topic, \ShopGPT\ShopifyIntegration\Contracts\ShopifyStore|string $store, array|string $payload = [])
  * @method static string installUrl(string $shop)
  * @method static string redirectUri()
- * @method static string model()
  *
  * @see \ShopGPT\ShopifyIntegration\ShopifyIntegrationManager
  */

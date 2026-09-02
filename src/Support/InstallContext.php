@@ -13,8 +13,6 @@ class InstallContext
     public function __construct(
         public readonly ShopifyStore $store,
         public readonly array $shopData = [],
-        public readonly bool $isNewInstall = false,
-        public readonly bool $isReinstall = false,
         public readonly bool $viaTokenExchange = false,
         public readonly ?string $scopes = null,
         public readonly ?string $host = null,
@@ -26,40 +24,9 @@ class InstallContext
         return $this->store->shopifyDomain() ?: ($this->shopData['myshopify_domain'] ?? null);
     }
 
-    public function shopOwner(): ?string
-    {
-        return $this->shopData['shop_owner'] ?? null;
-    }
-
     public function email(): ?string
     {
         return $this->shopData['email'] ?? null;
-    }
-
-    public function currency(): ?string
-    {
-        return $this->shopData['currency'] ?? null;
-    }
-
-    /**
-     * The store's contact email, or a stable synthetic address when that email
-     * already belongs to another account in your app.
-     *
-     * One person running several stores gives Shopify the same contact address
-     * on each, so a plain unique constraint on users.email would reject the
-     * second store's signup.
-     */
-    public function uniqueEmail(string $fallbackDomain, callable $isTaken): string
-    {
-        $email = $this->email();
-
-        if ($email && ! $isTaken($email)) {
-            return $email;
-        }
-
-        $id = $this->store->shopifyExternalId() ?: str_replace('.', '-', (string) $this->domain());
-
-        return "shopify_{$id}@{$fallbackDomain}";
     }
 
     /**

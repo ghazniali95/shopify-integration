@@ -155,10 +155,4 @@ class ShopifyIntegrationManager
     {
         return $this->oauth->redirectUri();
     }
-
-    /** @return class-string */
-    public function model(): string
-    {
-        return config('shopifyIntegration.store.model', \ShopGPT\ShopifyIntegration\Models\Integration::class);
-    }
 }

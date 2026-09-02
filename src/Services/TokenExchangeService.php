@@ -61,8 +61,6 @@ class TokenExchangeService
             $context = new InstallContext(
                 store: $store,
                 shopData: $shopData,
-                isNewInstall: $isNewInstall,
-                isReinstall: $isReinstall,
                 viaTokenExchange: true,
                 scopes: $token['scope'] ?? null,
             );

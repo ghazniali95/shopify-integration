@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Crypt;
 use ShopGPT\ShopifyIntegration\Contracts\ShopifyStore;
 use ShopGPT\ShopifyIntegration\Contracts\ShopifyStoreRepository;
+use ShopGPT\ShopifyIntegration\Exceptions\ShopifyIntegrationException;
 use ShopGPT\ShopifyIntegration\Support\ColumnMap;
 
 /**
@@ -74,6 +75,8 @@ class EloquentStoreRepository implements ShopifyStoreRepository
         array $token,
         array $shopData,
     ): ShopifyStore {
+        $this->assertMapped();
+
         $store = $existing instanceof Model ? $existing : $this->newStore($shop, $shopData);
 
         $attributes = [
@@ -260,6 +263,31 @@ class EloquentStoreRepository implements ShopifyStoreRepository
     {
         return config('shopifyIntegration.store.model')
             ?: \ShopGPT\ShopifyIntegration\Models\Integration::class;
+    }
+
+    /**
+     * Fail on a map that cannot hold a Shopify connection.
+     *
+     * Checked here because this is the first moment a bad map does damage: an
+     * unmapped store_domain makes every lookup return null, so each install
+     * looks like the first one and writes a row nothing can find again. Better
+     * a thrown exception on the callback than a table filling with orphans.
+     *
+     * @throws ShopifyIntegrationException
+     */
+    protected function assertMapped(): void
+    {
+        $missing = ColumnMap::missingRequired();
+
+        if ($missing === []) {
+            return;
+        }
+
+        throw new ShopifyIntegrationException(sprintf(
+            'shopifyIntegration.store.columns maps no column for: %s. '
+            .'A store cannot be stored without them.',
+            implode(', ', $missing),
+        ));
     }
 
     protected function model(ShopifyStore $store): Model

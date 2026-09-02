@@ -5,8 +5,8 @@ namespace ShopGPT\ShopifyIntegration\Support;
 /**
  * Logical field => the column your table actually uses.
  *
- * The package ships no migration, so it cannot assume a single name for
- * anything. Every field defaults to its own logical name and is overridden in
+ * The package loads no migration and owns no table, so it cannot assume a
+ * single name for anything. Every field defaults to its own logical name and is overridden in
  * `shopifyIntegration.store.columns`; mapping one to null says your table does
  * not store it, and the package stops writing it.
  */

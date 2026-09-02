@@ -10,11 +10,12 @@ use ShopGPT\ShopifyIntegration\Support\ColumnMap;
 /**
  * The default store model — a starting point, not a requirement.
  *
- * The package ships no migration and prescribes no column names, so this model
- * knows nothing about your table beyond what `shopifyIntegration.store` tells
- * it. Point `store.model` at your own model instead as soon as you have one;
- * add the InteractsWithShopifyStore trait to it and it will satisfy the
- * contract the same way this does.
+ * It prescribes no column names: everything it reads and writes comes from
+ * `shopifyIntegration.store`, so it fits the published starter table without
+ * configuration and an existing table through the column map. Point
+ * `store.model` at your own model instead as soon as you have one; add the
+ * InteractsWithShopifyStore trait to it and it will satisfy the contract the
+ * same way this does.
  */
 class Integration extends Model implements ShopifyStore
 {

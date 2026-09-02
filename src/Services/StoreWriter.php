@@ -25,7 +25,7 @@ class StoreWriter
     /**
      * @param  array{access_token: string, refresh_token: ?string, expires_in: ?int, scope: ?string}  $token
      * @param  array<string, mixed>  $shopData  Raw shop.json, or [] if unavailable.
-     * @return array{0: ShopifyStore, 1: bool, 2: bool}  [store, isNewInstall, isReinstall]
+     * @return array{0: ShopifyStore, 1: bool, 2: bool}  [store, isNew, isReinstall]
      */
     public function write(string $shop, array $token, array $shopData = []): array
     {

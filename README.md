@@ -52,7 +52,7 @@ commands, `$api->paginate()` and REST call-limit headers,
 
 | Package | PHP | Laravel |
 | --- | --- | --- |
-| `0.5.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
+| `0.6.x` | `^8.1` | `10.x`, `11.x`, `12.x` |
 
 Requires a cache store (OAuth state) and a queue worker (webhook handling).
 Any driver works.
@@ -72,9 +72,17 @@ php artisan vendor:publish --tag=shopifyIntegration-config
 The service provider is auto-discovered. Config lands at
 `config/shopifyIntegration.php`.
 
-**There is no migration to publish.** The package does not own a table — see
-[Storage](#storage-the-table-is-yours) for the one thing you do have to set
-up.
+**No migration runs on its own.** The package owns no table. If your app has
+nowhere to put a store yet, publish the starter one:
+
+```bash
+php artisan vendor:publish --tag=shopifyIntegration-migrations
+```
+
+Its columns are exactly the defaults the package assumes, so an app that runs
+it needs no configuration beyond credentials. If you already store
+integrations, skip it and map your columns instead — see
+[Storage](#storage-the-table-is-yours).
 
 ```env
 SHOPIFY_CLIENT_ID=your_api_key
@@ -109,19 +117,15 @@ environment; the rest are edited in the config file.
 | `store.platform` | — | `shopify` | Written to, and scoped by, the `platform` column when mapped |
 | `store.encrypt_tokens` | `SHOPIFY_ENCRYPT_TOKENS` | `false` | Encrypt tokens at rest. Off: your model may already |
 | `store.pii` | — | 4 fields | Logical fields a `shop/redact` clears |
-| `oauth.state_store` | — | `cache` | `cache` or `session`. Keep `cache` if embedded |
 | `oauth.state_ttl` | — | `300` | Seconds a pending install stays valid |
 | `oauth.hmac_ttl` | — | `300` | Seconds a signed Shopify request stays acceptable. `0` checks the signature only |
 | `oauth.listing_url` | `SHOPIFY_LISTING_URL` | `null` | Where to send someone who hits the install URL with no `shop` |
-| `tokens.refresh_buffer` | — | `300` | Refresh this many seconds before expiry |
-| `routes.enabled` | — | `true` | Set `false` to register the routes yourself |
 | `routes.prefix` | — | `shopify` | URL prefix for the package's routes |
 | `routes.middleware` | — | `['web']` | Applied to the OAuth routes |
 | `routes.webhook_middleware` | — | `['api']` | Applied to the webhook route |
 | `webhooks.topics` | — | 6 topics | Topic => job class. See [Webhooks](#webhooks) |
 | `webhooks.queue` | `SHOPIFY_WEBHOOK_QUEUE` | `default` | Queue webhook jobs are pushed to |
 | `webhooks.log_channel` | `SHOPIFY_WEBHOOK_LOG` | `null` | Log channel for webhook activity |
-| `webhooks.deduplicate` | — | `true` | Drop redeliveries of a webhook id already seen |
 | `redirects.after_install` | — | `/` | Route name, URL, or closure. Ignored when embedded |
 | `redirects.after_reinstall` | — | `/` | Same, for a store that had uninstalled |
 | `redirects.on_failure` | — | `/` | Same, when OAuth fails |
@@ -139,9 +143,13 @@ directly. Add your own env keys there if you want them environment-driven:
 
 ## Storage: the table is yours
 
-The package ships no migration, defines no columns, and never assumes what a
-store row looks like beyond six facts it cannot work without. Everything it
-reads or writes goes through two interfaces.
+The package registers no migration, prescribes no columns, and never assumes
+what a store row looks like beyond six facts it cannot work without.
+Everything it reads or writes goes through two interfaces.
+
+There is a starter table if you want one — `vendor:publish
+--tag=shopifyIntegration-migrations` — but it is published into your app, not
+loaded from the package, and nothing below depends on it.
 
 **`ShopifyStore`** — one connected store, as the package needs to read it:
 
@@ -355,17 +363,6 @@ class AppStoreRepository extends EloquentStoreRepository
 }
 ```
 
-`InstallContext::uniqueEmail()` is there for the case one merchant runs several
-stores and gives Shopify the same contact address on each — a plain unique
-constraint on `users.email` would reject the second one:
-
-```php
-$email = $event->context->uniqueEmail(
-    'your-app.com',
-    fn ($email) => User::where('email', $email)->exists(),
-);
-```
-
 **4.** Guard your routes:
 
 ```php
@@ -378,8 +375,9 @@ Route::middleware('shopifyIntegration.installed')->group(function () {
 
 ## Routes
 
-Registered under `routes.prefix` (default `shopify`). Set
-`routes.enabled` to `false` to register your own instead.
+Registered under `routes.prefix` (default `shopify`), always. Change the
+prefix and the middleware; the paths themselves are fixed, because the
+redirect URI the package hands Shopify is built from them.
 
 | Method | URI | Name |
 | --- | --- | --- |
@@ -409,8 +407,9 @@ have to line up.
 | `shopifyIntegration.installed` | Standalone routes needing a working store |
 | `shopifyIntegration.hmac` | Your own routes Shopify signs |
 
-All three store-resolving middleware set `ShopifyIntegration::currentStore()`.
-None of them touch `Auth::user()` — stack your own after them if you want a
+All three store-resolving middleware resolve the store into
+`ShopifyIntegration::currentStore()`, which is how your route reads it without
+a second lookup. None of them touch `Auth::user()` — stack your own after them if you want a
 Laravel user resolved:
 
 ```php
@@ -494,9 +493,7 @@ use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;
 
 | Method | Returns | Notes |
 | --- | --- | --- |
-| `currentStore()` | `?ShopifyStore` | The store this request is acting as |
-| `setCurrentStore(?ShopifyStore)` | `void` | |
-| `asStore(ShopifyStore, callable)` | `mixed` | Runs the callback as that store, then restores |
+| `currentStore()` | `?ShopifyStore` | The store the middleware resolved for this request |
 | `stores()` | `ShopifyStoreRepository` | Every read and write |
 | `forDomain(string)` | `?ShopifyStore` | Look a store up by `acme.myshopify.com` |
 | `api(ShopifyStore)` | `ApiClient` | Token guaranteed fresh. Works without the trait |
@@ -507,19 +504,8 @@ use ShopGPT\ShopifyIntegration\Facades\ShopifyIntegration;
 | `exchangeToken(string, string)` | `?ShopifyStore` | Session token → stored access token |
 | `installUrl(string)` | `string` | For a "connect your store" button |
 | `redirectUri()` | `string` | The callback URL, for your Partner dashboard |
-| `model()` | `class-string` | The configured store model class |
 | `sessionTokenHeaders(…)` | `array` | Test support |
 | `webhookHeaders(…)` | `array` | Test support |
-
-`asStore()` is the guard rail for queued jobs and loops over stores:
-
-```php
-foreach (Integration::query()->installed()->cursor() as $store) {
-    ShopifyIntegration::asStore($store, function ($store) {
-        ShopifyIntegration::api($store)->graphql($query);
-    });
-}
-```
 
 ---
 
@@ -682,27 +668,18 @@ $event->fatal;
 ```php
 $context->store;              // ShopifyStore
 $context->shopData;           // array — raw shop.json
-$context->isNewInstall;       // bool
-$context->isReinstall;        // bool
 $context->viaTokenExchange;   // bool — arrived embedded, not through the redirect
 $context->scopes;             // string|null — what Shopify granted
 $context->host;               // string|null — the host param, embedded only
 
 $context->domain();           // acme.myshopify.com
-$context->shopOwner();
 $context->email();
-$context->currency();
 $context->profile();          // the 11 profile fields, read from shop.json
 $context->isDevelopmentStore();
-$context->uniqueEmail($fallbackDomain, $isTaken);
 ```
 
-`uniqueEmail()` matters when one person runs several stores: Shopify gives the
-same contact address on each, so a unique constraint on `users.email` would
-reject the second. It returns a stable synthetic address when the real one is
-taken.
-
 `isDevelopmentStore()` matters for billing — a dev store cannot be charged live.
+Anything else from `shop.json` is in `$context->shopData` and `profile()`.
 
 ---
 
@@ -803,7 +780,6 @@ Everything here is meant to be overridden from your app.
 | Handle a new webhook topic | Add `topic => YourJob::class` to `webhooks.topics` |
 | Replace a shipped webhook handler | Point that topic at your own job class |
 | What travels the queue for a topic | Override `payloadForQueue()` on your job |
-| Register the routes yourself | `routes.enabled = false` |
 | Change the URL prefix | `routes.prefix` |
 | Add middleware to the OAuth routes | `routes.middleware` |
 | Where an unknown visitor goes | `oauth.listing_url` |
@@ -855,10 +831,10 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 - **A signature is checked whenever one is present, and expires.** A correct
   HMAC stays correct forever, so `oauth.hmac_ttl` bounds how long a signed
   Shopify URL kept in a log or a browser history is still worth anything.
-- **Keep `oauth.state_store` on `cache`** if there is any chance the app runs
-  embedded. Sessions do not survive the admin iframe. The nonce is single-use
-  and forms part of its own storage key, so two installs started for the same
-  store at once do not invalidate each other.
+- **The state nonce lives in the cache, never the session.** Sessions do not
+  survive the admin iframe, so this is not configurable. The nonce is
+  single-use and forms part of its own storage key, so two installs started for
+  the same store at once do not invalidate each other.
 - **`host` is validated before it is redirected to.** It arrives inside the
   HMAC-verified query string, but it decides where the merchant lands after an
   embedded install, so it is checked against the two shapes Shopify actually
@@ -877,7 +853,94 @@ Fake Shopify itself with `Http::fake()` against `https://{shop}/admin/api/*`.
 
 ## Versioning
 
-Semver. `0.x` while the API settles — require it as `^0.5`.
+Semver. `0.x` while the API settles — require it as `^0.6`.
+
+### `0.6.0`
+
+**A starter table, for an app that has none.** 0.5.0 removed the migration
+because the package was dictating a schema to apps that already had one. That
+was right, but it left a new app with nothing to install into and a config
+block to fill in before its first OAuth callback would work.
+
+So the table is back, on different terms: **published, never loaded.** It is
+not registered with the migrator, so it cannot collide with a table you
+already run — you opt in, the file becomes yours, and you edit it like any
+other migration.
+
+**Added**
+
+- `vendor:publish --tag=shopifyIntegration-migrations` writes a
+  `create_shopify_integrations_table` migration into your app. Its columns are
+  the exact defaults `ColumnMap` assumes, so publishing it means `store.columns`
+  can stay empty. Publishing twice overwrites the file rather than leaving two
+  copies of the same `CREATE TABLE`.
+- `user_id` on that table is **nullable, with no foreign key.** The row is
+  inserted during the callback, before any event fires, so the package has no
+  owner to put there — it does not know your app has users. Attach one in a
+  `StoreInstalled` listener.
+- The table name comes from `store.table`, so the migration respects it too.
+
+**Removed**
+
+Public surface with no caller in the package and no test covering it, plus
+options that only had one correct value. Most were unused, so nothing that
+works today stops working — but they were API, so they are listed:
+
+- **`InstallContext::$isNewInstall` and `$isReinstall`.** Which event fired
+  already says it — `StoreInstalled` or `StoreReinstalled` — so the context was
+  carrying the classification twice. It now carries only facts about the
+  install itself. Branch on the event, not on a flag.
+- **`oauth.state_store`.** It offered `'session'` for an app "certain never to
+  be embedded", and the cache serves a standalone app just as well, so the
+  option existed only to be set wrong. The nonce is always cached now.
+- **`webhooks.deduplicate`.** Turning it off is never right: Shopify redelivers
+  anything it did not get a 200 for, so `false` only bought duplicated work.
+  Always on.
+- **`tokens.refresh_buffer`, and the whole `tokens` config block with it.** The
+  window only has to outlast one in-flight request, and a value low enough to
+  matter is a value low enough to break. Fixed at 300s.
+- **`OAuthException::invalidShop()`, `invalidHmac()`, `invalidState()`.** Those
+  paths dispatch `OAuthFailed` and redirect; the three factories were never
+  called. `tokenExchangeFailed()` stays — it is the one that is thrown.
+- **`setCurrentStore()` and `asStore()` are no longer documented.** Both still
+  exist and still work — the middleware calls `setCurrentStore()` on every
+  store-resolving request — but neither is something an app writes. Read
+  `currentStore()`; leave the writing to the middleware.
+- **`routes.enabled`.** It let you unregister the routes and declare your own,
+  but `redirectUri()` builds the callback URL from `routes.prefix` — so any
+  path that differed from `{prefix}/auth/callback` sent Shopify a redirect URI
+  matching no route, and the install failed. An escape hatch with a trap in it.
+  The routes are always registered; `routes.prefix` and `routes.middleware`
+  cover the reasons anyone reached for it.
+
+- **`ShopifyIntegration::model()`** — a leftover from before storage moved
+  behind the repository. It advertised the one assumption 0.5.0 removed, and an
+  app with its own `ShopifyStoreRepository` may have no model class at all. Read
+  `config('shopifyIntegration.store.model')` if you genuinely need it.
+- **`InstallContext::uniqueEmail()`** — a user-signup policy in an OAuth
+  package. `email()` and `shopifyExternalId()` build the same thing in your app,
+  where the decision belongs.
+- **`InstallContext::shopOwner()` and `currency()`** — arbitrary: there was an
+  accessor for currency but none for `country_code`, `plan_name` or
+  `primary_locale`. Use `profile()` or `shopData` for all of them.
+- **`StoreState::splitScopes()` is now private.** Nothing outside `StoreState`
+  called it.
+
+**Fixed**
+
+- **A store table with no `store_domain` column now fails loudly.**
+  `ColumnMap::missingRequired()` had no caller, so an unmapped required field
+  meant every lookup returned null, every install looked like the first one,
+  and the table filled with rows nothing could find again. The repository now
+  checks the map before the first write and throws
+  `ShopifyIntegrationException` naming the missing fields.
+
+**Unchanged**
+
+Nothing about the storage contracts moved. `ShopifyStore`,
+`ShopifyStoreRepository`, `ColumnMap` and `store.columns` work exactly as they
+did in 0.5.0 — an app that mapped its own table keeps working and should not
+publish this.
 
 ### `0.5.0`
 
@@ -894,7 +957,8 @@ your repository, so `newStore()` runs before the INSERT with the whole
 
 - **The migration is removed.** `vendor:publish --tag=shopifyIntegration-migrations`
   no longer exists. Bring your own table; nothing about its shape is assumed
-  beyond what `store.columns` says.
+  beyond what `store.columns` says. *(0.6.0 brings the tag back as an opt-in
+  starter table that is published rather than loaded.)*
 - **The `integration_` column prefix is gone.** Column names come from
   `store.columns`, defaulting to the bare logical name. Existing installs keep
   their schema by mapping each field to the column it already uses.
